@@ -15,13 +15,14 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
 {
     public const string PluginGuid = "com.igorgsbarbosa.zb2securitylab";
     public const string PluginName = "ZB2 Security Lab";
-    public const string PluginVersion = "0.1.0";
+    public const string PluginVersion = "0.2.0";
 
     private const float PollIntervalSeconds = 0.25f;
     private const float ErrorLogIntervalSeconds = 5f;
 
     private readonly DiagnosticPanel _panel = new();
     private readonly LabStateTracker _stateTracker = new();
+    private readonly PlayerStateTracker _playerStateTracker = new();
     private readonly LabContext _labContext = new();
 
     private ConfigEntry<KeyboardShortcut>? _toggleShortcut;
@@ -80,12 +81,24 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
         _nextPollTime = Time.unscaledTime + PollIntervalSeconds;
         try
         {
+            var observedAt = DateTimeOffset.UtcNow;
             _lastSnapshot = _labContext.Capture();
             foreach (var transition in _stateTracker.Observe(_lastSnapshot))
             {
                 WriteEvent(
                     transition.Kind.ToString(),
                     $"previous={transition.PreviousValue ?? "NULL"};current={transition.CurrentValue ?? "NULL"}");
+            }
+
+            foreach (var transition in _playerStateTracker.Observe(_lastSnapshot, observedAt))
+            {
+                WriteEvent(
+                    transition.Kind.ToString(),
+                    transition.CurrentValue,
+                    eventName: transition.Kind.ToString().ToLowerInvariant(),
+                    oldValue: transition.PreviousValue,
+                    newValue: transition.CurrentValue,
+                    context: BuildEventContext(_lastSnapshot));
             }
         }
         catch (Exception exception)
@@ -134,7 +147,14 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
         }
     }
 
-    private void WriteEvent(string phase, string? observedValue, string? error = null)
+    private void WriteEvent(
+        string phase,
+        string? observedValue,
+        string? error = null,
+        string? eventName = null,
+        string? oldValue = null,
+        string? newValue = null,
+        string? context = null)
     {
         if (_eventWriter is null)
         {
@@ -151,6 +171,11 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
                 BuildFingerprint = _buildFingerprint,
                 Test = "Instrumentation",
                 Phase = phase,
+                Event = eventName,
+                OldValue = oldValue,
+                NewValue = newValue,
+                Context = context,
+                OriginalValue = oldValue,
                 LocalObservedValue = observedValue,
                 Disconnected = false,
                 Error = error
@@ -162,9 +187,13 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
         }
     }
 
+    private static string BuildEventContext(LabSnapshot snapshot)
+    {
+        return $"playerToken={snapshot.LocalPlayerToken ?? "NULL"};role={snapshot.Role};lobby={snapshot.LobbyId ?? "NULL"};weapon={snapshot.Weapon?.Id ?? "NONE"}";
+    }
+
     private static string DefaultOutputDirectory()
     {
         return Path.GetFullPath(Path.Combine(Paths.GameRootPath, "..", "..", "logs", "security-tests"));
     }
 }
-

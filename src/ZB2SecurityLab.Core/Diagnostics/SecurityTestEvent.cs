@@ -27,6 +27,14 @@ public sealed class SecurityTestEvent
 
     public string Phase { get; set; } = string.Empty;
 
+    public string? Event { get; set; }
+
+    public string? OldValue { get; set; }
+
+    public string? NewValue { get; set; }
+
+    public string? Context { get; set; }
+
     public string? OriginalValue { get; set; }
 
     public string? RequestedValue { get; set; }
@@ -63,6 +71,10 @@ public static class SecurityTestEventJson
         AppendString(builder, "buildFingerprint", value.BuildFingerprint);
         AppendString(builder, "test", value.Test);
         AppendString(builder, "phase", value.Phase);
+        AppendNullableString(builder, "event", value.Event);
+        AppendNullableString(builder, "oldValue", value.OldValue);
+        AppendNullableString(builder, "newValue", value.NewValue);
+        AppendNullableString(builder, "context", value.Context);
         AppendNullableString(builder, "originalValue", value.OriginalValue);
         AppendNullableString(builder, "requestedValue", value.RequestedValue);
         AppendNullableString(builder, "localObservedValue", value.LocalObservedValue);
@@ -161,4 +173,3 @@ public static class SecurityTestEventJson
         builder.Append('"');
     }
 }
-

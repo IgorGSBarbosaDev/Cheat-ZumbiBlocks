@@ -1,6 +1,6 @@
 # ZB2SecurityLab
 
-PoC de instrumentação **read-only** para um teste autorizado do Zumbi Blocks 2 Open Alpha. Esta primeira etapa confirma carregamento de código, detecta o contexto da partida e mostra um painel de diagnóstico. Ela não altera gameplay, pacotes de rede, inventário ou saves.
+PoC de instrumentação **read-only** para um teste autorizado do Zumbi Blocks 2 Open Alpha. O PoC confirma carregamento de código, detecta o contexto da partida e mapeia o estado do jogador local em um painel de diagnóstico. Ele não altera gameplay, pacotes de rede, inventário ou saves.
 
 ## Escopo de segurança
 
@@ -32,9 +32,8 @@ O diretório padrão dos logs pressupõe a estrutura deste repositório. Ele pod
 
 ## Projetos
 
-- `ZB2SecurityLab.Core`: contratos, fingerprint, tracking de estado e guardas testáveis sem Unity.
-- `ZB2SecurityLab.Plugin`: integração BepInEx/Unity e painel IMGUI.
+- `ZB2SecurityLab.Core`: contratos, snapshots, fingerprint, tracking de estado e guardas testáveis sem Unity.
+- `ZB2SecurityLab.Plugin`: captura read-only BepInEx/Unity e painel IMGUI com estado do jogador.
 - `ZB2SecurityLab.Core.Tests`: testes automatizados do código puro.
 
 Nenhuma DLL do jogo, runtime de laboratório, ferramenta ou log deve ser versionado.
-
