@@ -1,0 +1,30 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ZB2SecurityLab.Core", "src\ZB2SecurityLab.Core\ZB2SecurityLab.Core.csproj", "{63EA366C-A7E6-48F0-8591-D8FFDAF7B7B2}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ZB2SecurityLab.Plugin", "src\ZB2SecurityLab.Plugin\ZB2SecurityLab.Plugin.csproj", "{51336E3F-5A75-459A-8B0A-E2C8E46410F1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ZB2SecurityLab.Core.Tests", "tests\ZB2SecurityLab.Core.Tests\ZB2SecurityLab.Core.Tests.csproj", "{1E797BF6-0ADC-43E3-8652-06CC76D1A3E6}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{63EA366C-A7E6-48F0-8591-D8FFDAF7B7B2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{63EA366C-A7E6-48F0-8591-D8FFDAF7B7B2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{63EA366C-A7E6-48F0-8591-D8FFDAF7B7B2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{63EA366C-A7E6-48F0-8591-D8FFDAF7B7B2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{51336E3F-5A75-459A-8B0A-E2C8E46410F1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{51336E3F-5A75-459A-8B0A-E2C8E46410F1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{51336E3F-5A75-459A-8B0A-E2C8E46410F1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{51336E3F-5A75-459A-8B0A-E2C8E46410F1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1E797BF6-0ADC-43E3-8652-06CC76D1A3E6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1E797BF6-0ADC-43E3-8652-06CC76D1A3E6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1E797BF6-0ADC-43E3-8652-06CC76D1A3E6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1E797BF6-0ADC-43E3-8652-06CC76D1A3E6}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

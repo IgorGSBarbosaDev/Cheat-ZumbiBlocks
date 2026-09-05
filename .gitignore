@@ -1,0 +1,11 @@
+.downloads/
+.vs/
+.vscode/
+lab-runtime/
+**/bin/
+**/obj/
+*.user
+*.suo
+logs/security-tests/*.jsonl
+logs/security-tests/*.log
+
