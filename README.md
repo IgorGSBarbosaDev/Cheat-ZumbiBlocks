@@ -1,12 +1,13 @@
 # ZB2SecurityLab
 
-PoC de instrumentação **read-only** para um teste autorizado do Zumbi Blocks 2 Open Alpha. O PoC confirma carregamento de código, detecta o contexto da partida e mapeia o estado do jogador local em um painel de diagnóstico. Ele não altera gameplay, pacotes de rede, inventário ou saves.
+PoC de instrumentação e mutação controlada para um teste autorizado do Zumbi Blocks 2 Open Alpha. O plugin detecta o contexto da partida, mapeia o jogador local e permite dois testes locais de 10 segundos — FOV e recarga única de stamina — com restauração obrigatória. As mutações ficam desabilitadas por padrão e nunca alteram pacotes de rede, inventário ou saves.
 
 ## Escopo de segurança
 
 - Use somente a cópia de laboratório do build `24525702` e servidor privado autorizado.
 - Não conecte a cópia instrumentada a servidores públicos.
 - Não há bypass, stealth, persistência, packet injection ou mecanismo de distribuição.
+- As mutações só podem ser habilitadas no build conhecido e em single-player, com ação manual pelo painel F8.
 - Se Steam ou uma proteção impedir a cópia, pare e solicite ao desenvolvedor um build de laboratório.
 
 ## Build conhecido
@@ -26,14 +27,14 @@ dotnet test .\ZB2SecurityLab.sln --configuration Release
 pwsh -File .\scripts\Deploy-Plugin.ps1
 ```
 
-Inicie manualmente `lab-runtime\build-24525702\ZumbiBlocks2.exe` somente no ambiente autorizado. `F8` abre e fecha o painel. Os eventos ficam em `logs\security-tests\<session-id>.jsonl`; o log do loader fica em `lab-runtime\build-24525702\BepInEx\LogOutput.log`.
+Inicie manualmente `lab-runtime\build-24525702\ZumbiBlocks2.exe` somente no ambiente autorizado. `F8` abre e fecha o painel. Fechar o painel durante um teste restaura o valor imediatamente. Os eventos ficam em `logs\security-tests\<session-id>.jsonl`; o log do loader fica em `lab-runtime\build-24525702\BepInEx\LogOutput.log`.
 
-O diretório padrão dos logs pressupõe a estrutura deste repositório. Ele pode ser alterado em `BepInEx\config\com.igorgsbarbosa.zb2securitylab.cfg` após a primeira execução.
+O diretório padrão dos logs pressupõe a estrutura deste repositório. Ele pode ser alterado em `BepInEx\config\com.igorgsbarbosa.zb2securitylab.cfg` após a primeira execução. Para habilitar explicitamente os botões de mutação, defina `Enabled = true` na seção `[ControlledMutations]`; o valor padrão é `false`.
 
 ## Projetos
 
-- `ZB2SecurityLab.Core`: contratos, snapshots, fingerprint, tracking de estado e guardas testáveis sem Unity.
-- `ZB2SecurityLab.Plugin`: captura read-only BepInEx/Unity e painel IMGUI com estado do jogador.
+- `ZB2SecurityLab.Core`: contratos, snapshots, fingerprint, tracking, guarda, lifecycle e restauração testáveis sem Unity.
+- `ZB2SecurityLab.Plugin`: captura BepInEx/Unity, adaptadores de mutação limitados e painel IMGUI.
 - `ZB2SecurityLab.Core.Tests`: testes automatizados do código puro.
 
 Nenhuma DLL do jogo, runtime de laboratório, ferramenta ou log deve ser versionado.

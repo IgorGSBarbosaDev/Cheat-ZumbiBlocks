@@ -1,4 +1,4 @@
-# Estado do jogador — PoC 2
+# Estado do jogador — PoC 2 / PoC 3A
 
 Mapeamento do build autorizado `24525702`, obtido por inspeção estática de `Assembly-CSharp.dll` e observação read-only. A existência de um campo ou mensagem não confirma uma vulnerabilidade nem prova ausência de validação em outros pontos.
 
@@ -6,7 +6,7 @@ Mapeamento do build autorizado `24525702`, obtido por inspeção estática de `A
 
 A classe concreta do jogador é `PlayerMain`, um `UnityEngine.MonoBehaviour`. O plugin obtém o jogador local por `ClientController.instance.GetMyPlayer()` e usa `PlayersController.instance.MyPlayer()` como fallback. `PlayerMain.HasLocalControl` diferencia o objeto controlado localmente de representações remotas.
 
-Nenhum valor de `PlayerMain` ou dos objetos relacionados é escrito pelo PoC.
+Os PoCs 1 e 2 não escrevem valores. O PoC 3A escreve temporariamente apenas `staminaFast` e `staminaSlow`, sob a guarda single-player e com restauração registrada antes da aplicação.
 
 ## Object Graph
 
@@ -139,4 +139,12 @@ Esses pontos são pistas de autoridade, não resultados de exploração. O PoC 2
 | Fire Rate | HIGH | `DatabaseGun.rof`, `PhysicalGun.Cooldown` | Shot event não carrega timing; validação temporal não foi confirmada | LATER |
 | Health | HIGH | `healthFast`, `healthSlow`, `healthState` | Host envia dano, mas somente o estado discreto de saúde é sincronizado | NO |
 
-Os candidatos são apenas uma priorização documental. Nenhum teste de mutação do PoC 3 foi implementado.
+Os candidatos continuam como priorização documental; somente FOV e stamina fazem parte do PoC 3A.
+
+## Controlled Mutation Mapping — PoC 3A
+
+O teste de FOV captura e restaura exclusivamente `FOVController.UserDefinedFOV`. `BaseFOV`, `CurrentFOV`, `curZoom`, `Camera.fieldOfView` e `SaveGraphics.fov` são somente leitura. O valor solicitado é `110`; a câmera continua responsável por sua interpolação e zoom.
+
+O teste de stamina captura `PlayerMain.staminaFast`, `staminaSlow` e `maxStamina`, escreve uma única vez `staminaFast = maxStamina` e `staminaSlow = maxStamina`, e restaura os dois valores mutados após no máximo 10 segundos. `maxStamina`, `staminaUsabilityCooldown`, `staminaRegenCooldown`, regeneração e fatores de drenagem nunca são alterados.
+
+Ambos os testes exigem o mesmo token de jogador durante toda a janela. Não há reaplicação por frame, alteração persistente ou observação remota nesta etapa.
