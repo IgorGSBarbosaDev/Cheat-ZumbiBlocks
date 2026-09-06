@@ -1,36 +1,41 @@
 using System;
-using System.Collections.Generic;
 
 namespace ZB2SecurityLab.Core.Experiments;
 
 public sealed class LabModeGuard
 {
-    private readonly HashSet<string> _allowedLobbyIds;
-
-    public LabModeGuard(bool mutationEnabled, bool allowSinglePlayer, IEnumerable<string>? allowedLobbyIds = null)
+    public MutationGuardDecision Evaluate(MutationEligibilityContext context)
     {
-        MutationEnabled = mutationEnabled;
-        AllowSinglePlayer = allowSinglePlayer;
-        _allowedLobbyIds = new HashSet<string>(allowedLobbyIds ?? Array.Empty<string>(), StringComparer.Ordinal);
-    }
-
-    public bool MutationEnabled { get; }
-
-    public bool AllowSinglePlayer { get; }
-
-    public bool CanMutate(bool isSinglePlayer, string? currentLobbyId)
-    {
-        if (!MutationEnabled)
+        if (!context.MutationEnabled)
         {
-            return false;
+            return new MutationGuardDecision(false, "MUTATIONS_DISABLED");
         }
 
-        if (isSinglePlayer)
+        if (!context.BuildSupported)
         {
-            return AllowSinglePlayer;
+            return new MutationGuardDecision(false, "UNSUPPORTED_BUILD");
         }
 
-        return currentLobbyId is not null && _allowedLobbyIds.Contains(currentLobbyId);
+        if (!context.InGame)
+        {
+            return new MutationGuardDecision(false, "NOT_IN_GAME");
+        }
+
+        if (!context.LocalPlayerAvailable || string.IsNullOrEmpty(context.PlayerToken))
+        {
+            return new MutationGuardDecision(false, "LOCAL_PLAYER_UNAVAILABLE");
+        }
+
+        if (!context.HasLocalControl)
+        {
+            return new MutationGuardDecision(false, "LOCAL_CONTROL_REQUIRED");
+        }
+
+        if (!string.Equals(context.Role, "SINGLE_PLAYER", StringComparison.Ordinal))
+        {
+            return new MutationGuardDecision(false, "SINGLE_PLAYER_ONLY");
+        }
+
+        return new MutationGuardDecision(true, "ALLOWED_SINGLE_PLAYER");
     }
 }
-

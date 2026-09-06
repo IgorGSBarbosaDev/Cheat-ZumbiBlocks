@@ -45,6 +45,12 @@ public sealed class SecurityTestEvent
 
     public string? ServerEvidence { get; set; }
 
+    public TestOutcome? Outcome { get; set; }
+
+    public string? RestoreReason { get; set; }
+
+    public bool? RestoreSucceeded { get; set; }
+
     public bool? ServerCorrected { get; set; }
 
     public bool? ServerAccepted { get; set; }
@@ -80,6 +86,9 @@ public static class SecurityTestEventJson
         AppendNullableString(builder, "localObservedValue", value.LocalObservedValue);
         AppendNullableString(builder, "remoteObservedValue", value.RemoteObservedValue);
         AppendNullableString(builder, "serverEvidence", value.ServerEvidence);
+        AppendNullableString(builder, "outcome", value.Outcome?.ToString());
+        AppendNullableString(builder, "restoreReason", value.RestoreReason);
+        AppendNullableBoolean(builder, "restoreSucceeded", value.RestoreSucceeded);
         AppendNullableBoolean(builder, "serverCorrected", value.ServerCorrected);
         AppendNullableBoolean(builder, "serverAccepted", value.ServerAccepted);
         AppendBoolean(builder, "disconnected", value.Disconnected);

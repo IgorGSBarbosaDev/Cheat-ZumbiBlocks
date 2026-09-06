@@ -29,6 +29,9 @@ public sealed class SecurityTestEventJsonTests
 
         Assert.AreEqual("2026-09-05T15:30:00.0000000+00:00", root.GetProperty("timestampUtc").GetString());
         Assert.AreEqual("line 1\n\"line 2\"", root.GetProperty("localObservedValue").GetString());
+        Assert.AreEqual(JsonValueKind.Null, root.GetProperty("outcome").ValueKind);
+        Assert.AreEqual(JsonValueKind.Null, root.GetProperty("restoreReason").ValueKind);
+        Assert.AreEqual(JsonValueKind.Null, root.GetProperty("restoreSucceeded").ValueKind);
         Assert.AreEqual(JsonValueKind.Null, root.GetProperty("serverAccepted").ValueKind);
         Assert.IsFalse(root.GetProperty("disconnected").GetBoolean());
     }
@@ -48,7 +51,10 @@ public sealed class SecurityTestEventJsonTests
             NewValue = "27",
             Context = "playerToken=1;role=SINGLE_PLAYER;lobby=NULL;weapon=HiPoint",
             OriginalValue = "30",
-            LocalObservedValue = "27"
+            LocalObservedValue = "27",
+            Outcome = TestOutcome.LOCAL_ONLY,
+            RestoreReason = "DURATION_ELAPSED",
+            RestoreSucceeded = true
         };
 
         var json = SecurityTestEventJson.Serialize(value);
@@ -62,5 +68,8 @@ public sealed class SecurityTestEventJsonTests
         Assert.AreEqual(value.Context, root.GetProperty("context").GetString());
         Assert.AreEqual("30", root.GetProperty("originalValue").GetString());
         Assert.AreEqual("27", root.GetProperty("localObservedValue").GetString());
+        Assert.AreEqual("LOCAL_ONLY", root.GetProperty("outcome").GetString());
+        Assert.AreEqual("DURATION_ELAPSED", root.GetProperty("restoreReason").GetString());
+        Assert.IsTrue(root.GetProperty("restoreSucceeded").GetBoolean());
     }
 }
