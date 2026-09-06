@@ -1,8 +1,17 @@
 using System.Globalization;
 using UnityEngine;
 using ZB2SecurityLab.Core.Diagnostics;
+using ZB2SecurityLab.Core.Experiments;
 
 namespace ZB2SecurityLab.Plugin.UI;
+
+internal enum MutationPanelCommand
+{
+    NONE,
+    RUN_FOV,
+    RUN_STAMINA,
+    RESTORE
+}
 
 internal sealed class DiagnosticPanel
 {
@@ -10,20 +19,27 @@ internal sealed class DiagnosticPanel
 
     internal bool Visible { get; set; }
 
-    internal void Draw(bool buildSupported, string buildStatus, LabSnapshot? snapshot, string sessionId)
+    internal MutationPanelCommand Draw(
+        bool buildSupported,
+        string buildStatus,
+        LabSnapshot? snapshot,
+        string sessionId,
+        MutationPanelState mutationState)
     {
         if (!Visible)
         {
-            return;
+            return MutationPanelCommand.NONE;
         }
 
+        var command = MutationPanelCommand.NONE;
         var width = Mathf.Max(320f, Mathf.Min(480f, Screen.width - 40f));
         var height = Mathf.Max(250f, Mathf.Min(720f, Screen.height - 40f));
         var panelRect = new Rect(20f, 20f, width, height);
         GUI.Box(panelRect, "");
         GUILayout.BeginArea(new Rect(panelRect.x + 12f, panelRect.y + 10f, panelRect.width - 24f, panelRect.height - 20f));
         _scrollPosition = GUILayout.BeginScrollView(_scrollPosition);
-        GUILayout.Label("ZB2 SECURITY LAB — READ ONLY");
+        GUILayout.Label("ZB2 SECURITY LAB — CONTROLLED MUTATION");
+        GUILayout.Label("SINGLE-PLAYER LAB COPY ONLY");
         GUILayout.Space(6f);
         GUILayout.Label($"Build: {(buildSupported ? "SUPPORTED" : "BLOCKED")}");
         GUILayout.Label(buildStatus);
@@ -45,10 +61,66 @@ internal sealed class DiagnosticPanel
             DrawWarnings(snapshot);
         }
 
+        command = DrawMutations(mutationState);
+
         GUILayout.Space(8f);
         GUILayout.Label("F8 closes this diagnostic panel.");
         GUILayout.EndScrollView();
         GUILayout.EndArea();
+        return command;
+    }
+
+    private static MutationPanelCommand DrawMutations(MutationPanelState state)
+    {
+        Section("CONTROLLED MUTATIONS");
+        GUILayout.Label($"Configuration: {(state.MutationsEnabled ? "ENABLED" : "DISABLED")}");
+        GUILayout.Label($"Eligibility: {(state.Eligible ? "ALLOWED" : state.EligibilityReason)}");
+        GUILayout.Label("Each mutation is single-write and auto-restores after 10 seconds.");
+
+        if (state.IsActive)
+        {
+            GUILayout.Label($"Active: {state.ActiveTestId ?? "UNKNOWN"}");
+            GUILayout.Label($"Remaining: {state.RemainingSeconds.ToString("0.0", CultureInfo.InvariantCulture)} s");
+            GUILayout.Label($"Baseline: {state.OriginalValue ?? "PENDING"}");
+            GUILayout.Label($"Requested: {state.RequestedValue ?? "PENDING"}");
+            GUILayout.Label($"Observed: {state.LocalObservedValue ?? "PENDING"}");
+            GUILayout.Label("Stamina restoration intentionally replaces drain/regen during the window.");
+            if (GUILayout.Button("Restore Now"))
+            {
+                return MutationPanelCommand.RESTORE;
+            }
+        }
+        else
+        {
+            var previousEnabled = GUI.enabled;
+            GUI.enabled = state.Eligible;
+            if (GUILayout.Button("Run FOV 110° (10 s)"))
+            {
+                GUI.enabled = previousEnabled;
+                return MutationPanelCommand.RUN_FOV;
+            }
+
+            if (GUILayout.Button("Refill Stamina Once (10 s)"))
+            {
+                GUI.enabled = previousEnabled;
+                return MutationPanelCommand.RUN_STAMINA;
+            }
+
+            GUI.enabled = previousEnabled;
+        }
+
+        if (state.LastResult != null)
+        {
+            GUILayout.Label($"Last result: {state.LastResult.TestId} / {state.LastResult.Outcome}");
+            GUILayout.Label($"Restore: {(state.LastResult.RestoreSucceeded ? "CONFIRMED" : "FAILED")}");
+            GUILayout.Label($"Reason: {state.LastResult.RestoreReason}");
+            if (state.LastResult.Error is not null)
+            {
+                GUILayout.Label($"Error: {state.LastResult.Error}");
+            }
+        }
+
+        return MutationPanelCommand.NONE;
     }
 
     private static void DrawPlayer(PlayerStateSnapshot? player)

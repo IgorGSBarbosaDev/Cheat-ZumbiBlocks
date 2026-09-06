@@ -13,7 +13,7 @@ internal sealed class LabContext
         var multiplayerController = MultiplayerController.instance;
         var clientController = ClientController.instance;
         var serverController = ServerController.instance;
-        var player = FindLocalPlayer(clientController);
+        var player = GetLocalPlayer();
         var snapshot = new LabSnapshot
         {
             InGame = MatchController.instance != null && MatchController.InGame,
@@ -273,8 +273,9 @@ internal sealed class LabContext
 
     private static LabVector3 Vector(UnityEngine.Vector3 value) => new(value.x, value.y, value.z);
 
-    private static PlayerMain? FindLocalPlayer(ClientController? clientController)
+    internal PlayerMain? GetLocalPlayer()
     {
+        var clientController = ClientController.instance;
         PlayerMain? player = null;
         if (clientController != null)
         {
