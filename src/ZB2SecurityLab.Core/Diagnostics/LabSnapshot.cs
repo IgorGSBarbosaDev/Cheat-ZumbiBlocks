@@ -16,6 +16,16 @@ public sealed class LabSnapshot
 
     public string? LobbyId { get; set; }
 
+    public int? LocalLobbyPlayerId { get; set; }
+
+    public string? ServerSteamId { get; set; }
+
+    public string? LobbyOwnerSteamId { get; set; }
+
+    public string? LocalSteamId { get; set; }
+
+    public MultiplayerSessionSnapshot? MultiplayerSession { get; set; }
+
     public int? PingMilliseconds { get; set; }
 
     public PlayerStateSnapshot? PlayerState { get; set; }
@@ -88,6 +98,8 @@ public sealed class WeaponStateSnapshot
     public int? ReserveAmmo { get; set; }
 
     public int? MagazineSize { get; set; }
+
+    public int? AmmoConsumption { get; set; }
 
     public float? FireRate { get; set; }
 

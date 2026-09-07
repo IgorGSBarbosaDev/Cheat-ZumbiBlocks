@@ -12,6 +12,10 @@ public enum MutationPhase
     APPLIED,
     OBSERVED,
     MONITORING,
+    TARGET_TRACKED,
+    TARGET_PAUSED,
+    WRITE_APPLIED,
+    WRITE_FAILED,
     INTERFERENCE_DETECTED,
     RESTORE_REQUESTED,
     RESTORED,
@@ -29,8 +33,26 @@ public enum RestoreReason
     TARGET_CHANGED,
     APPLY_FAILED,
     OBSERVATION_FAILED,
+    SESSION_CHANGED,
     PLUGIN_DISABLED,
     PLUGIN_DESTROYED
+}
+
+public enum MutationExecutionScope
+{
+    NOT_ELIGIBLE,
+    SINGLE_PLAYER,
+    AUTHORIZED_MULTIPLAYER_CLIENT,
+    AUTHORIZED_MULTIPLAYER_HOST
+}
+
+public enum ServerEvidenceKind
+{
+    NOT_APPLICABLE,
+    NOT_OBSERVED,
+    ACCEPTED,
+    CORRECTED,
+    CONFLICTING
 }
 
 public sealed class MutationEligibilityContext
@@ -48,19 +70,45 @@ public sealed class MutationEligibilityContext
     public string Role { get; set; } = string.Empty;
 
     public string? PlayerToken { get; set; }
+
+    public string BuildId { get; set; } = string.Empty;
+
+    public DateTimeOffset ObservedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+
+    public bool AuthorizedMultiplayerEnabled { get; set; }
+
+    public string? AuthorizationGrantError { get; set; }
+
+    public AuthorizedSessionGrant? AuthorizationGrant { get; set; }
+
+    public Diagnostics.MultiplayerSessionSnapshot? MultiplayerSession { get; set; }
 }
 
 public sealed class MutationGuardDecision
 {
-    public MutationGuardDecision(bool allowed, string reason)
+    public MutationGuardDecision(
+        bool allowed,
+        string reason,
+        MutationExecutionScope scope = MutationExecutionScope.NOT_ELIGIBLE,
+        string? sessionToken = null,
+        string? authorizationId = null)
     {
         Allowed = allowed;
         Reason = reason ?? throw new ArgumentNullException(nameof(reason));
+        Scope = scope;
+        SessionToken = sessionToken;
+        AuthorizationId = authorizationId;
     }
 
     public bool Allowed { get; }
 
     public string Reason { get; }
+
+    public MutationExecutionScope Scope { get; }
+
+    public string? SessionToken { get; }
+
+    public string? AuthorizationId { get; }
 }
 
 public sealed class MutationLifecycleEvent
@@ -69,11 +117,33 @@ public sealed class MutationLifecycleEvent
 
     public MutationPhase Phase { get; set; }
 
+    public string? Event { get; set; }
+
+    public string? OldValue { get; set; }
+
+    public string? NewValue { get; set; }
+
+    public string? Context { get; set; }
+
+    public MutationExecutionScope? ExecutionScope { get; set; }
+
+    public string? SessionToken { get; set; }
+
+    public string? AuthorizationId { get; set; }
+
+    public string? ExperimentRunId { get; set; }
+
+    public ServerEvidenceKind? ServerEvidence { get; set; }
+
+    public string? EvidenceSource { get; set; }
+
     public string? OriginalValue { get; set; }
 
     public string? RequestedValue { get; set; }
 
     public string? LocalObservedValue { get; set; }
+
+    public string? RemoteObservedValue { get; set; }
 
     public RestoreReason? RestoreReason { get; set; }
 
@@ -82,6 +152,28 @@ public sealed class MutationLifecycleEvent
     public Diagnostics.TestOutcome? Outcome { get; set; }
 
     public string? Error { get; set; }
+}
+
+public sealed class MutationRuntimeEvent
+{
+    public MutationPhase Phase { get; set; }
+
+    public string Event { get; set; } = string.Empty;
+
+    public string? OldValue { get; set; }
+
+    public string? NewValue { get; set; }
+
+    public string? LocalObservedValue { get; set; }
+
+    public string? Context { get; set; }
+
+    public string? Error { get; set; }
+}
+
+public interface IRuntimeMutationEventSource
+{
+    IReadOnlyList<MutationRuntimeEvent> DrainRuntimeEvents();
 }
 
 public sealed class RestoreEntryResult
@@ -152,6 +244,20 @@ public sealed class MutationResult
 
     public Diagnostics.TestOutcome Outcome { get; set; }
 
+    public MutationExecutionScope ExecutionScope { get; set; }
+
+    public string? SessionToken { get; set; }
+
+    public string? AuthorizationId { get; set; }
+
+    public string? ExperimentRunId { get; set; }
+
+    public ServerEvidenceKind ServerEvidence { get; set; }
+
+    public string? RemoteObservedValue { get; set; }
+
+    public string? EvidenceSource { get; set; }
+
     public RestoreReason RestoreReason { get; set; }
 
     public string? OriginalValue { get; set; }
@@ -168,6 +274,8 @@ public sealed class MutationResult
 public sealed class MutationPanelState
 {
     public bool MutationsEnabled { get; set; }
+
+    public bool AuthorizedMultiplayerEnabled { get; set; }
 
     public bool Eligible { get; set; }
 
@@ -186,4 +294,24 @@ public sealed class MutationPanelState
     public string? LocalObservedValue { get; set; }
 
     public MutationResult? LastResult { get; set; }
+
+    public bool AmmoEligible { get; set; }
+
+    public string AmmoEligibilityReason { get; set; } = string.Empty;
+
+    public string? ActiveTarget { get; set; }
+
+    public int? TrackedTargetCount { get; set; }
+
+    public int? WriteCount { get; set; }
+
+    public string? PausedReason { get; set; }
+
+    public MutationExecutionScope ExecutionScope { get; set; }
+
+    public string? AuthorizationId { get; set; }
+
+    public string? SteamLobbyId { get; set; }
+
+    public string? ServerSteamId { get; set; }
 }

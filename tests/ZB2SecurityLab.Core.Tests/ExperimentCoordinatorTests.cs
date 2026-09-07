@@ -10,7 +10,11 @@ namespace ZB2SecurityLab.Core.Tests;
 [TestClass]
 public sealed class ExperimentCoordinatorTests
 {
-    private static readonly MutationGuardDecision Allowed = new(true, "ALLOWED_SINGLE_PLAYER");
+    private static readonly MutationGuardDecision Allowed = new(
+        true,
+        "ALLOWED_SINGLE_PLAYER",
+        MutationExecutionScope.SINGLE_PLAYER,
+        "session-a");
 
     [TestMethod]
     public void Start_CapturesRegistersAppliesAndObservesInOrder()
@@ -96,6 +100,82 @@ public sealed class ExperimentCoordinatorTests
     }
 
     [TestMethod]
+    public void Tick_SessionIdentityDriftRestoresAndIsInconclusive()
+    {
+        var experiment = new FakeExperiment("session");
+        var coordinator = new ExperimentCoordinator();
+        coordinator.Start(experiment, 0d, Allowed);
+
+        coordinator.Tick(
+            1d,
+            new MutationGuardDecision(
+                true,
+                "ALLOWED_SINGLE_PLAYER",
+                MutationExecutionScope.SINGLE_PLAYER,
+                "session-b"),
+            experiment.TargetToken);
+
+        Assert.AreEqual(1, experiment.RestoreCount);
+        Assert.AreEqual(RestoreReason.SESSION_CHANGED, coordinator.LastResult!.RestoreReason);
+        Assert.AreEqual(TestOutcome.INCONCLUSIVE, coordinator.LastResult.Outcome);
+    }
+
+    [TestMethod]
+    public void Tick_AuthorizationGrantDriftRestoresAndIsInconclusive()
+    {
+        var experiment = new FakeExperiment("authorization");
+        var coordinator = new ExperimentCoordinator();
+        var initial = new MutationGuardDecision(
+            true,
+            "AUTHORIZED_SESSION_MATCH",
+            MutationExecutionScope.AUTHORIZED_MULTIPLAYER_CLIENT,
+            "session-a",
+            "run-1");
+        coordinator.Start(experiment, 0d, initial);
+
+        coordinator.Tick(
+            1d,
+            new MutationGuardDecision(
+                true,
+                "AUTHORIZED_SESSION_MATCH",
+                MutationExecutionScope.AUTHORIZED_MULTIPLAYER_CLIENT,
+                "session-a",
+                "run-2"),
+            experiment.TargetToken);
+
+        Assert.AreEqual(1, experiment.RestoreCount);
+        Assert.AreEqual(RestoreReason.SESSION_CHANGED, coordinator.LastResult!.RestoreReason);
+        Assert.AreEqual(TestOutcome.INCONCLUSIVE, coordinator.LastResult.Outcome);
+        StringAssert.Contains(coordinator.LastResult.Error, "AUTHORIZATION_CHANGED");
+    }
+
+    [TestMethod]
+    public void Coordinator_ClassifiesExplicitMultiplayerServerEvidence()
+    {
+        var experiment = new FakeExperiment("multiplayer");
+        var coordinator = new ExperimentCoordinator();
+        var decision = new MutationGuardDecision(
+            true,
+            "AUTHORIZED_SESSION_MATCH",
+            MutationExecutionScope.AUTHORIZED_MULTIPLAYER_CLIENT,
+            "session-a",
+            "run-1");
+        var started = coordinator.Start(experiment, 0d, decision);
+
+        var evidence = coordinator.RecordServerEvidence(
+            ServerEvidenceKind.ACCEPTED,
+            "hostShotCount=31",
+            "AUTHORIZED_HOST_LOG");
+        coordinator.Stop(RestoreReason.MANUAL);
+
+        Assert.AreEqual(TestOutcome.SERVER_ACCEPTED, coordinator.LastResult!.Outcome);
+        Assert.AreEqual("run-1", coordinator.LastResult.AuthorizationId);
+        Assert.AreEqual("hostShotCount=31", coordinator.LastResult.RemoteObservedValue);
+        Assert.IsFalse(string.IsNullOrEmpty(started[0].ExperimentRunId));
+        Assert.AreEqual("server_evidence_observed", evidence.Single().Event);
+    }
+
+    [TestMethod]
     public void Start_CaptureFailureDoesNotRegisterRestore()
     {
         var experiment = new FakeExperiment("capture") { ThrowOnCapture = true };
@@ -159,6 +239,28 @@ public sealed class ExperimentCoordinatorTests
         Assert.AreEqual(1, firstTick.Count(item => item.Phase == MutationPhase.INTERFERENCE_DETECTED));
         Assert.AreEqual(0, secondTick.Count(item => item.Phase == MutationPhase.INTERFERENCE_DETECTED));
         Assert.AreEqual(TestOutcome.INCONCLUSIVE, coordinator.LastResult!.Outcome);
+    }
+
+    [TestMethod]
+    public void Coordinator_DrainsRuntimeEventsAfterCaptureObserveAndRestore()
+    {
+        var experiment = new RuntimeEventExperiment();
+        var coordinator = new ExperimentCoordinator();
+
+        var started = coordinator.Start(experiment, 0d);
+        var ticked = coordinator.Tick(1d, Allowed, experiment.TargetToken);
+        var stopped = coordinator.Stop(RestoreReason.MANUAL);
+
+        CollectionAssert.AreEqual(
+            new[] { "captured", "started" },
+            started.Where(item => item.Event is not null).Select(item => item.Event).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { "tick" },
+            ticked.Where(item => item.Event is not null).Select(item => item.Event).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { "restore" },
+            stopped.Where(item => item.Event is not null).Select(item => item.Event).ToArray());
+        Assert.IsTrue(stopped.Single(item => item.Event == "restore").RestoreSucceeded is null);
     }
 
     private sealed class FakeExperiment : ILabExperiment
@@ -250,6 +352,67 @@ public sealed class ExperimentCoordinatorTests
 
             RestoreConfirmed = true;
             LocalObservedValue = "original";
+        }
+    }
+
+    private sealed class RuntimeEventExperiment : ILabExperiment, IRuntimeMutationEventSource
+    {
+        private readonly List<MutationRuntimeEvent> _events = new();
+        private int _observationCount;
+
+        public string Id => "runtime";
+
+        public string TargetToken => "player";
+
+        public string? OriginalValue => "30";
+
+        public string? RequestedValue => "30";
+
+        public string? LocalObservedValue => "30";
+
+        public bool RequestedValueObserved => true;
+
+        public bool InterferenceDetected => false;
+
+        public bool RestoreConfirmed { get; private set; }
+
+        public void CaptureBaseline()
+        {
+            Queue("captured", MutationPhase.TARGET_TRACKED);
+        }
+
+        public void Apply()
+        {
+        }
+
+        public void Observe()
+        {
+            Queue(_observationCount++ == 0 ? "started" : "tick", MutationPhase.WRITE_APPLIED);
+        }
+
+        public void Restore()
+        {
+            RestoreConfirmed = true;
+            Queue("restore", MutationPhase.WRITE_APPLIED);
+        }
+
+        public IReadOnlyList<MutationRuntimeEvent> DrainRuntimeEvents()
+        {
+            var drained = _events.ToArray();
+            _events.Clear();
+            return drained;
+        }
+
+        private void Queue(string eventName, MutationPhase phase)
+        {
+            _events.Add(new MutationRuntimeEvent
+            {
+                Event = eventName,
+                Phase = phase,
+                OldValue = "29",
+                NewValue = "30",
+                Context = "target=ammo-1"
+            });
         }
     }
 }

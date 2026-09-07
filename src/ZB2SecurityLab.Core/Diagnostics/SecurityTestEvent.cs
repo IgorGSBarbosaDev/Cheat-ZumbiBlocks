@@ -45,6 +45,32 @@ public sealed class SecurityTestEvent
 
     public string? ServerEvidence { get; set; }
 
+    public string? ExecutionScope { get; set; }
+
+    public string? NetworkMode { get; set; }
+
+    public string? NetworkRole { get; set; }
+
+    public string? ConnectionState { get; set; }
+
+    public string? SteamLobbyId { get; set; }
+
+    public string? ServerSteamId { get; set; }
+
+    public string? LobbyOwnerSteamId { get; set; }
+
+    public string? LocalSteamId { get; set; }
+
+    public int? LocalLobbyPlayerId { get; set; }
+
+    public string? AuthorizationId { get; set; }
+
+    public string? AuthorizationDecision { get; set; }
+
+    public string? ExperimentRunId { get; set; }
+
+    public string? EvidenceSource { get; set; }
+
     public TestOutcome? Outcome { get; set; }
 
     public string? RestoreReason { get; set; }
@@ -86,6 +112,19 @@ public static class SecurityTestEventJson
         AppendNullableString(builder, "localObservedValue", value.LocalObservedValue);
         AppendNullableString(builder, "remoteObservedValue", value.RemoteObservedValue);
         AppendNullableString(builder, "serverEvidence", value.ServerEvidence);
+        AppendNullableString(builder, "executionScope", value.ExecutionScope);
+        AppendNullableString(builder, "networkMode", value.NetworkMode);
+        AppendNullableString(builder, "networkRole", value.NetworkRole);
+        AppendNullableString(builder, "connectionState", value.ConnectionState);
+        AppendNullableString(builder, "steamLobbyId", value.SteamLobbyId);
+        AppendNullableString(builder, "serverSteamId", value.ServerSteamId);
+        AppendNullableString(builder, "lobbyOwnerSteamId", value.LobbyOwnerSteamId);
+        AppendNullableString(builder, "localSteamId", value.LocalSteamId);
+        AppendNullableInt32(builder, "localLobbyPlayerId", value.LocalLobbyPlayerId);
+        AppendNullableString(builder, "authorizationId", value.AuthorizationId);
+        AppendNullableString(builder, "authorizationDecision", value.AuthorizationDecision);
+        AppendNullableString(builder, "experimentRunId", value.ExperimentRunId);
+        AppendNullableString(builder, "evidenceSource", value.EvidenceSource);
         AppendNullableString(builder, "outcome", value.Outcome?.ToString());
         AppendNullableString(builder, "restoreReason", value.RestoreReason);
         AppendNullableBoolean(builder, "restoreSucceeded", value.RestoreSucceeded);
@@ -139,6 +178,16 @@ public static class SecurityTestEventJson
     {
         AppendPropertyName(builder, name);
         builder.Append(value.HasValue ? (value.Value ? "true" : "false") : "null");
+        if (appendComma)
+        {
+            builder.Append(',');
+        }
+    }
+
+    private static void AppendNullableInt32(StringBuilder builder, string name, int? value, bool appendComma = true)
+    {
+        AppendPropertyName(builder, name);
+        builder.Append(value.HasValue ? value.Value.ToString(CultureInfo.InvariantCulture) : "null");
         if (appendComma)
         {
             builder.Append(',');

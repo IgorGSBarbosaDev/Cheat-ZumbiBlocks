@@ -13,7 +13,9 @@ public enum LabTransitionKind
     LOCAL_PLAYER_REACQUIRED,
     ROLE_CHANGED,
     CONNECTION_CHANGED,
-    LOBBY_CHANGED
+    LOBBY_CHANGED,
+    SERVER_CHANGED,
+    LOCAL_LOBBY_PLAYER_CHANGED
 }
 
 public sealed class LabStateTransition
@@ -68,6 +70,12 @@ public sealed class LabStateTracker
         AddWhenChanged(transitions, LabTransitionKind.ROLE_CHANGED, _previous.Role, current.Role);
         AddWhenChanged(transitions, LabTransitionKind.CONNECTION_CHANGED, _previous.ConnectionState, current.ConnectionState);
         AddWhenChanged(transitions, LabTransitionKind.LOBBY_CHANGED, _previous.LobbyId, current.LobbyId);
+        AddWhenChanged(transitions, LabTransitionKind.SERVER_CHANGED, _previous.ServerSteamId, current.ServerSteamId);
+        AddWhenChanged(
+            transitions,
+            LabTransitionKind.LOCAL_LOBBY_PLAYER_CHANGED,
+            Format(_previous.LocalLobbyPlayerId),
+            Format(current.LocalLobbyPlayerId));
 
         _previous = Copy(current);
         return transitions;
@@ -128,8 +136,46 @@ public sealed class LabStateTracker
             Role = snapshot.Role,
             ConnectionState = snapshot.ConnectionState,
             LobbyId = snapshot.LobbyId,
+            LocalLobbyPlayerId = snapshot.LocalLobbyPlayerId,
+            ServerSteamId = snapshot.ServerSteamId,
+            LobbyOwnerSteamId = snapshot.LobbyOwnerSteamId,
+            LocalSteamId = snapshot.LocalSteamId,
+            MultiplayerSession = Copy(snapshot.MultiplayerSession),
             PingMilliseconds = snapshot.PingMilliseconds
         };
     }
-}
 
+    private static MultiplayerSessionSnapshot? Copy(MultiplayerSessionSnapshot? session)
+    {
+        if (session is null)
+        {
+            return null;
+        }
+
+        return new MultiplayerSessionSnapshot
+        {
+            Role = session.Role,
+            ConnectionState = session.ConnectionState,
+            IsMultiplayer = session.IsMultiplayer,
+            ServerStarted = session.ServerStarted,
+            ServerMultiplayerMode = session.ServerMultiplayerMode,
+            ServerSinglePlayerMode = session.ServerSinglePlayerMode,
+            ClientConnected = session.ClientConnected,
+            ClientMatchmakingConnected = session.ClientMatchmakingConnected,
+            ServerLobbyLaunched = session.ServerLobbyLaunched,
+            FriendsOnlySignal = session.FriendsOnlySignal,
+            ServerConnectionResolved = session.ServerConnectionResolved,
+            SteamLobbyId = session.SteamLobbyId,
+            ServerSteamId = session.ServerSteamId,
+            LobbyOwnerSteamId = session.LobbyOwnerSteamId,
+            GameServerSteamId = session.GameServerSteamId,
+            ServerConnectionSteamId = session.ServerConnectionSteamId,
+            LocalSteamId = session.LocalSteamId,
+            LocalLobbyPlayerId = session.LocalLobbyPlayerId,
+            LobbyRegion = session.LobbyRegion,
+            LobbyVersion = session.LobbyVersion
+        };
+    }
+
+    private static string? Format(int? value) => value?.ToString(System.Globalization.CultureInfo.InvariantCulture);
+}

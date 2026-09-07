@@ -9,6 +9,13 @@ public sealed class ExperimentCoordinator
     private readonly double _durationSeconds;
     private double _deadlineSeconds;
     private bool _restoreRegistered;
+    private MutationExecutionScope _activeExecutionScope = MutationExecutionScope.SINGLE_PLAYER;
+    private string? _activeSessionToken;
+    private string? _activeAuthorizationId;
+    private string? _experimentRunId;
+    private ServerEvidenceKind _serverEvidence = ServerEvidenceKind.NOT_APPLICABLE;
+    private string? _remoteObservedValue;
+    private string? _evidenceSource;
 
     public ExperimentCoordinator(RestoreManager? restoreManager = null, double durationSeconds = 10d)
     {
@@ -30,7 +37,10 @@ public sealed class ExperimentCoordinator
         return ActiveExperiment is null ? 0d : Math.Max(0d, _deadlineSeconds - nowSeconds);
     }
 
-    public IReadOnlyList<MutationLifecycleEvent> Start(ILabExperiment experiment, double nowSeconds)
+    public IReadOnlyList<MutationLifecycleEvent> Start(
+        ILabExperiment experiment,
+        double nowSeconds,
+        MutationGuardDecision? guardDecision = null)
     {
         if (experiment is null)
         {
@@ -42,16 +52,31 @@ public sealed class ExperimentCoordinator
             throw new InvalidOperationException($"Experiment '{ActiveExperiment.Id}' is already active.");
         }
 
+        if (guardDecision is not null && !guardDecision.Allowed)
+        {
+            throw new InvalidOperationException($"Cannot start an ineligible experiment: {guardDecision.Reason}");
+        }
+
         ActiveExperiment = experiment;
         LastResult = null;
         _deadlineSeconds = nowSeconds + _durationSeconds;
         _restoreRegistered = false;
+        _activeExecutionScope = guardDecision?.Scope ?? MutationExecutionScope.SINGLE_PLAYER;
+        _activeSessionToken = guardDecision?.SessionToken;
+        _activeAuthorizationId = guardDecision?.AuthorizationId;
+        _experimentRunId = Guid.NewGuid().ToString("N");
+        _serverEvidence = _activeExecutionScope == MutationExecutionScope.SINGLE_PLAYER
+            ? ServerEvidenceKind.NOT_APPLICABLE
+            : ServerEvidenceKind.NOT_OBSERVED;
+        _remoteObservedValue = null;
+        _evidenceSource = null;
         var events = new List<MutationLifecycleEvent>();
 
         try
         {
             experiment.CaptureBaseline();
             events.Add(Event(experiment, MutationPhase.BASELINE_CAPTURED));
+            DrainRuntimeEvents(experiment, events);
 
             _restoreManager.Register(experiment);
             _restoreRegistered = true;
@@ -60,9 +85,11 @@ public sealed class ExperimentCoordinator
             {
                 experiment.Apply();
                 events.Add(Event(experiment, MutationPhase.APPLIED));
+                DrainRuntimeEvents(experiment, events);
             }
             catch (Exception exception)
             {
+                DrainRuntimeEvents(experiment, events);
                 events.Add(Event(experiment, MutationPhase.FAILED, error: exception.Message));
                 Complete(RestoreReason.APPLY_FAILED, exception.Message, events);
                 return events;
@@ -72,16 +99,19 @@ public sealed class ExperimentCoordinator
             {
                 experiment.Observe();
                 events.Add(Event(experiment, MutationPhase.OBSERVED));
+                DrainRuntimeEvents(experiment, events);
                 events.Add(Event(experiment, MutationPhase.MONITORING));
             }
             catch (Exception exception)
             {
+                DrainRuntimeEvents(experiment, events);
                 events.Add(Event(experiment, MutationPhase.FAILED, error: exception.Message));
                 Complete(RestoreReason.OBSERVATION_FAILED, exception.Message, events);
             }
         }
         catch (Exception exception)
         {
+            DrainRuntimeEvents(experiment, events);
             events.Add(Event(experiment, MutationPhase.FAILED, error: exception.Message));
             if (_restoreRegistered)
             {
@@ -93,6 +123,11 @@ public sealed class ExperimentCoordinator
                 {
                     TestId = experiment.Id,
                     Outcome = Diagnostics.TestOutcome.INCONCLUSIVE,
+                    ExecutionScope = _activeExecutionScope,
+                    SessionToken = _activeSessionToken,
+                    AuthorizationId = _activeAuthorizationId,
+                    ExperimentRunId = _experimentRunId,
+                    ServerEvidence = _serverEvidence,
                     RestoreReason = RestoreReason.APPLY_FAILED,
                     OriginalValue = experiment.OriginalValue,
                     RequestedValue = experiment.RequestedValue,
@@ -126,6 +161,19 @@ public sealed class ExperimentCoordinator
             return events;
         }
 
+        if (_activeSessionToken is not null &&
+            !string.Equals(_activeSessionToken, guardDecision.SessionToken, StringComparison.Ordinal))
+        {
+            Complete(RestoreReason.SESSION_CHANGED, "SESSION_TOKEN_CHANGED", events);
+            return events;
+        }
+
+        if (!string.Equals(_activeAuthorizationId, guardDecision.AuthorizationId, StringComparison.Ordinal))
+        {
+            Complete(RestoreReason.SESSION_CHANGED, "AUTHORIZATION_CHANGED", events);
+            return events;
+        }
+
         if (!string.Equals(experiment.TargetToken, currentPlayerToken, StringComparison.Ordinal))
         {
             Complete(RestoreReason.TARGET_CHANGED, "PLAYER_TOKEN_CHANGED", events);
@@ -136,6 +184,7 @@ public sealed class ExperimentCoordinator
         try
         {
             experiment.Observe();
+            DrainRuntimeEvents(experiment, events);
             if (!interferenceBefore && experiment.InterferenceDetected)
             {
                 events.Add(Event(experiment, MutationPhase.INTERFERENCE_DETECTED, error: "MUTATED_VALUE_OVERWRITTEN"));
@@ -143,6 +192,7 @@ public sealed class ExperimentCoordinator
         }
         catch (Exception exception)
         {
+            DrainRuntimeEvents(experiment, events);
             events.Add(Event(experiment, MutationPhase.FAILED, error: exception.Message));
             Complete(RestoreReason.OBSERVATION_FAILED, exception.Message, events);
             return events;
@@ -154,6 +204,51 @@ public sealed class ExperimentCoordinator
         }
 
         return events;
+    }
+
+    public IReadOnlyList<MutationLifecycleEvent> RecordServerEvidence(
+        ServerEvidenceKind evidence,
+        string remoteObservedValue,
+        string evidenceSource)
+    {
+        if (ActiveExperiment is null)
+        {
+            throw new InvalidOperationException("No experiment is active.");
+        }
+
+        if (_activeExecutionScope == MutationExecutionScope.SINGLE_PLAYER)
+        {
+            throw new InvalidOperationException("Server evidence is not applicable to single-player experiments.");
+        }
+
+        if (evidence != ServerEvidenceKind.ACCEPTED &&
+            evidence != ServerEvidenceKind.CORRECTED &&
+            evidence != ServerEvidenceKind.CONFLICTING)
+        {
+            throw new ArgumentOutOfRangeException(nameof(evidence));
+        }
+
+        if (string.IsNullOrWhiteSpace(remoteObservedValue))
+        {
+            throw new ArgumentException("Remote observed value is required.", nameof(remoteObservedValue));
+        }
+
+        if (string.IsNullOrWhiteSpace(evidenceSource))
+        {
+            throw new ArgumentException("Evidence source is required.", nameof(evidenceSource));
+        }
+
+        _serverEvidence = evidence;
+        _remoteObservedValue = remoteObservedValue;
+        _evidenceSource = evidenceSource;
+        return new[]
+        {
+            Event(
+                ActiveExperiment,
+                MutationPhase.OBSERVED,
+                eventName: "server_evidence_observed",
+                remoteObservedValue: remoteObservedValue)
+        };
     }
 
     public IReadOnlyList<MutationLifecycleEvent> Stop(RestoreReason reason, string? error = null)
@@ -180,6 +275,7 @@ public sealed class ExperimentCoordinator
         {
             events.Add(Event(experiment, MutationPhase.RESTORE_REQUESTED, restoreReason: reason));
             report = _restoreManager.RestoreAll(reason);
+            DrainRuntimeEvents(experiment, events);
             events.Add(Event(
                 experiment,
                 report.Succeeded ? MutationPhase.RESTORED : MutationPhase.RESTORE_FAILED,
@@ -199,12 +295,21 @@ public sealed class ExperimentCoordinator
             _restoreRegistered,
             report,
             reason,
-            combinedError);
+            combinedError,
+            _activeExecutionScope,
+            _serverEvidence);
 
         LastResult = new MutationResult
         {
             TestId = experiment.Id,
             Outcome = outcome,
+            ExecutionScope = _activeExecutionScope,
+            SessionToken = _activeSessionToken,
+            AuthorizationId = _activeAuthorizationId,
+            ExperimentRunId = _experimentRunId,
+            ServerEvidence = _serverEvidence,
+            RemoteObservedValue = _remoteObservedValue,
+            EvidenceSource = _evidenceSource,
             RestoreReason = reason,
             OriginalValue = experiment.OriginalValue,
             RequestedValue = experiment.RequestedValue,
@@ -222,26 +327,70 @@ public sealed class ExperimentCoordinator
         _restoreRegistered = false;
     }
 
-    private static MutationLifecycleEvent Event(
+    private MutationLifecycleEvent Event(
         ILabExperiment experiment,
         MutationPhase phase,
         RestoreReason? restoreReason = null,
         bool? restoreSucceeded = null,
         Diagnostics.TestOutcome? outcome = null,
-        string? error = null)
+        string? error = null,
+        string? eventName = null,
+        string? remoteObservedValue = null)
     {
         return new MutationLifecycleEvent
         {
             TestId = experiment.Id,
             Phase = phase,
+            Event = eventName,
+            ExecutionScope = _activeExecutionScope,
+            SessionToken = _activeSessionToken,
+            AuthorizationId = _activeAuthorizationId,
+            ExperimentRunId = _experimentRunId,
+            ServerEvidence = _serverEvidence,
+            EvidenceSource = _evidenceSource,
             OriginalValue = experiment.OriginalValue,
             RequestedValue = experiment.RequestedValue,
             LocalObservedValue = experiment.LocalObservedValue,
+            RemoteObservedValue = remoteObservedValue ?? _remoteObservedValue,
             RestoreReason = restoreReason,
             RestoreSucceeded = restoreSucceeded,
             Outcome = outcome,
             Error = error
         };
+    }
+
+    private void DrainRuntimeEvents(
+        ILabExperiment experiment,
+        ICollection<MutationLifecycleEvent> events)
+    {
+        if (experiment is not IRuntimeMutationEventSource source)
+        {
+            return;
+        }
+
+        foreach (var runtimeEvent in source.DrainRuntimeEvents())
+        {
+            events.Add(new MutationLifecycleEvent
+            {
+                TestId = experiment.Id,
+                Phase = runtimeEvent.Phase,
+                Event = runtimeEvent.Event,
+                OldValue = runtimeEvent.OldValue,
+                NewValue = runtimeEvent.NewValue,
+                Context = runtimeEvent.Context,
+                ExecutionScope = _activeExecutionScope,
+                SessionToken = _activeSessionToken,
+                AuthorizationId = _activeAuthorizationId,
+                ExperimentRunId = _experimentRunId,
+                ServerEvidence = _serverEvidence,
+                EvidenceSource = _evidenceSource,
+                OriginalValue = experiment.OriginalValue,
+                RequestedValue = experiment.RequestedValue,
+                LocalObservedValue = runtimeEvent.LocalObservedValue ?? experiment.LocalObservedValue,
+                RemoteObservedValue = _remoteObservedValue,
+                Error = runtimeEvent.Error
+            });
+        }
     }
 
     private static string? CombineErrors(string? first, string? second)

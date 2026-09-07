@@ -48,6 +48,48 @@ public sealed class MutationOutcomeClassifierTests
         Assert.AreEqual(
             TestOutcome.INCONCLUSIVE,
             MutationOutcomeClassifier.Classify(true, false, true, SuccessfulReport(RestoreReason.TARGET_CHANGED), RestoreReason.TARGET_CHANGED, null));
+        Assert.AreEqual(
+            TestOutcome.INCONCLUSIVE,
+            MutationOutcomeClassifier.Classify(
+                true,
+                false,
+                true,
+                SuccessfulReport(RestoreReason.SESSION_CHANGED),
+                RestoreReason.SESSION_CHANGED,
+                null,
+                MutationExecutionScope.AUTHORIZED_MULTIPLAYER_CLIENT,
+                ServerEvidenceKind.ACCEPTED));
+    }
+
+    [TestMethod]
+    public void Classify_RequiresExplicitEvidenceForServerOutcomes()
+    {
+        var report = SuccessfulReport(RestoreReason.MANUAL);
+
+        Assert.AreEqual(
+            TestOutcome.LOCAL_ONLY,
+            MutationOutcomeClassifier.Classify(
+                true, false, true, report, RestoreReason.MANUAL, null,
+                MutationExecutionScope.AUTHORIZED_MULTIPLAYER_CLIENT,
+                ServerEvidenceKind.NOT_OBSERVED));
+        Assert.AreEqual(
+            TestOutcome.SERVER_ACCEPTED,
+            MutationOutcomeClassifier.Classify(
+                true, false, true, report, RestoreReason.MANUAL, null,
+                MutationExecutionScope.AUTHORIZED_MULTIPLAYER_CLIENT,
+                ServerEvidenceKind.ACCEPTED));
+        Assert.AreEqual(
+            TestOutcome.SERVER_CORRECTED,
+            MutationOutcomeClassifier.Classify(
+                true, true, true, report, RestoreReason.MANUAL, null,
+                MutationExecutionScope.AUTHORIZED_MULTIPLAYER_CLIENT,
+                ServerEvidenceKind.CORRECTED));
+        Assert.AreEqual(
+            TestOutcome.INCONCLUSIVE,
+            MutationOutcomeClassifier.Classify(
+                true, false, true, report, RestoreReason.MANUAL, null,
+                MutationExecutionScope.AUTHORIZED_MULTIPLAYER_CLIENT,
+                ServerEvidenceKind.CONFLICTING));
     }
 
     private static RestoreReport SuccessfulReport(RestoreReason reason)

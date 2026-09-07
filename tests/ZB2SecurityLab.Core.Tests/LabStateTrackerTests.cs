@@ -49,6 +49,27 @@ public sealed class LabStateTrackerTests
         Assert.AreEqual(0, transitions.Count);
     }
 
+    [TestMethod]
+    public void Observe_ReportsSteamSessionIdentityChanges()
+    {
+        var tracker = new LabStateTracker();
+        var initial = Snapshot(inGame: true, playerToken: "101");
+        initial.LobbyId = "lobby-a";
+        initial.ServerSteamId = "server-a";
+        initial.LocalLobbyPlayerId = 1;
+        tracker.Observe(initial);
+
+        var changed = Snapshot(inGame: true, playerToken: "101");
+        changed.LobbyId = "lobby-b";
+        changed.ServerSteamId = "server-b";
+        changed.LocalLobbyPlayerId = 2;
+        var transitions = tracker.Observe(changed);
+
+        CollectionAssert.Contains(transitions.Select(item => item.Kind).ToList(), LabTransitionKind.LOBBY_CHANGED);
+        CollectionAssert.Contains(transitions.Select(item => item.Kind).ToList(), LabTransitionKind.SERVER_CHANGED);
+        CollectionAssert.Contains(transitions.Select(item => item.Kind).ToList(), LabTransitionKind.LOCAL_LOBBY_PLAYER_CHANGED);
+    }
+
     private static LabSnapshot Snapshot(bool inGame, string? playerToken)
     {
         return new LabSnapshot
@@ -63,4 +84,3 @@ public sealed class LabStateTrackerTests
         };
     }
 }
-
