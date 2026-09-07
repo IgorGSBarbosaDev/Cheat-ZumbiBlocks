@@ -8,4 +8,4 @@ lab-runtime/
 *.suo
 logs/security-tests/*.jsonl
 logs/security-tests/*.log
-
+artifacts/

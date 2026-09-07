@@ -31,6 +31,24 @@ Inicie manualmente `lab-runtime\build-24525702\ZumbiBlocks2.exe` somente no ambi
 
 O diretório de logs pode ser alterado em `BepInEx\config\com.igorgsbarbosa.zb2securitylab.cfg`. Para habilitar os botões, defina `Enabled = true` em `[ControlledMutations]`; o padrão é `false`.
 
+## Launcher para a instalação oficial
+
+`ZB2SecurityLab.Launcher` oferece uma janela WPF para localizar o AppID `1941780` nas bibliotecas Steam, validar o build e iniciar o jogo pela Steam com uma instalação temporária do BepInEx. O launcher é fail-closed: build desconhecido, atualização pendente, jogo já aberto ou qualquer loader preexistente bloqueiam o fluxo sem sobrescrever arquivos.
+
+Mutation Mode começa desabilitado em cada execução e precisa ser marcado novamente antes do launch. A UI desta etapa é voltada ao single-player; a fundação de multiplayer privado autorizado permanece no plugin e no workflow de laboratório, sem configuração no launcher.
+
+Durante uma sessão compatível, o launcher adiciona temporariamente os arquivos do Doorstop/BepInEx e as duas DLLs do Security Lab. Nenhum arquivo original é substituído. Um worker registra os arquivos em `%LocalAppData%\ZB2SecurityLab\transactions`, monitora o processo real de `ZumbiBlocks2.exe` e remove somente a árvore marcada e os arquivos raiz que ainda conservam os hashes implantados. JSONL, auditoria e uma cópia de `LogOutput.log` permanecem em `%LocalAppData%\ZB2SecurityLab\logs`.
+
+Uma sessão interrompida deve ser recuperada pelo launcher antes de outro launch. Arquivo temporário adulterado, marker divergente ou jogo ainda aberto deixam o estado `RecoveryRequired`; o launcher não executa remoção ampla nem solicita verificação automática dos arquivos Steam.
+
+Para gerar o artefato single-file, disponibilize localmente o arquivo BepInEx aprovado e execute, somente quando houver autorização de publicação:
+
+```powershell
+pwsh -File .\scripts\Publish-Launcher.ps1
+```
+
+O script valida o SHA-256 do loader, não faz download e exige que a saída contenha somente `ZB2SecurityLab.Launcher.exe`.
+
 Multiplayer permanece bloqueado até que `[AuthorizedMultiplayer] Enabled = true` e `GrantPath` aponte para um JSON válido. Não existe modo curinga nem botão para confiar automaticamente na sessão atual:
 
 ```json
@@ -57,6 +75,8 @@ Mapeamento e procedimentos detalhados: `docs/networking.md`, `docs/mutation-test
 - `ZB2SecurityLab.Core`: contratos, snapshots, fingerprint, tracking, guarda, lifecycle e restauração testáveis sem Unity.
 - `ZB2SecurityLab.Plugin`: captura BepInEx/Unity, adaptadores de mutação limitados e painel IMGUI.
 - `ZB2SecurityLab.Core.Tests`: testes automatizados do código puro.
+- `ZB2SecurityLab.Launcher`: descoberta Steam, validação, instalação transitória, worker, monitoramento, cleanup e UI WPF.
+- `ZB2SecurityLab.Launcher.Tests`: fixtures isoladas para VDF, fingerprint, payload, transação, processo e estado da UI.
 
 Nenhuma DLL do jogo, runtime de laboratório, ferramenta ou log deve ser versionado.
 

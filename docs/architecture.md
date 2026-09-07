@@ -58,6 +58,18 @@ O JSONL possui campos explícitos para scope, papel, conexão, lobby, servidor, 
 
 O plugin valida arquivos a partir de `Paths.GameRootPath`, portanto pode executar em qualquer instalação do build suportado. Compilação separa as referências do jogo das referências do loader. O deploy genérico verifica o fingerprint e exige BepInEx existente antes de copiar somente as duas DLLs do Security Lab. A instalação do loader não é automatizada.
 
+## Launcher oficial
+
+`ZB2SecurityLab.Launcher` é um aplicativo WPF .NET 8 x64, independente de PowerShell em runtime. `SupportedBuild` centraliza o AppID, build, Unity, layout e hashes consumidos pelo launcher e pelo plugin; um teste de paridade impede que `Verify-Build.ps1` divirja desses valores.
+
+O launcher principal permanece sem elevação. Um worker iniciado pelo mesmo executável usa um named pipe restrito ao usuário e nonce de 256 bits, repete a descoberta e os fingerprints e solicita UAC somente se a pasta do jogo não aceitar uma escrita-probe reversível. O worker cria o payload com `FileMode.CreateNew`, mantém journal atômico por arquivo e não mescla instalações preexistentes.
+
+O processo curto da Steam não é tratado como processo do jogo. Depois de `steam.exe -applaunch 1941780`, o worker procura um processo novo cujo caminho canônico corresponda exatamente a `ZumbiBlocks2.exe`, confirma o loader por log/JSONL e aguarda seu encerramento. Se a janela fechar, o worker continua independente; se todo o fluxo for interrompido, o próximo launcher recupera o journal antes de iniciar outra sessão.
+
+O cleanup exige ausência do processo, marker exato e hashes dos arquivos raiz. A árvore `BepInEx` é removida apenas quando criada pela sessão; arquivos raiz alterados são preservados e reportados. Ao final, os fingerprints originais são recalculados. Logs do plugin são escritos diretamente fora da Steam e `LogOutput.log` é arquivado antes da remoção.
+
 ## Limites
 
 Não existem patches Harmony, interceptação ou envio manual de mensagens, alteração de saves ou persistência das mutações. Encerramento abrupto do processo não permite callback de restauração; o plugin não grava saves, mas não pode executar a confirmação final nesse caso.
+
+O launcher adiciona arquivos temporários ao diretório Steam durante a sessão; ele não torna o carregamento invisível e não contorna proteção ou política da plataforma. Antivírus, loader preexistente, build divergente ou cleanup inseguro causam bloqueio explícito.
