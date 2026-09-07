@@ -39,6 +39,16 @@ public sealed class BuildFingerprintTests
         Assert.IsNull(result.ActualSha256);
     }
 
+    [TestMethod]
+    public void SupportedBuild_ContainsTheAuthorizedSteamContract()
+    {
+        Assert.AreEqual("1941780", SupportedBuild.SteamAppId);
+        Assert.AreEqual("24525702", SupportedBuild.BuildId);
+        Assert.AreEqual("6000.3.21f1", SupportedBuild.UnityVersion);
+        Assert.AreEqual(64, SupportedBuild.ExecutableSha256.Length);
+        Assert.AreEqual(64, SupportedBuild.AssemblyCSharpSha256.Length);
+    }
+
     private static string CreateTemporaryFile(string contents)
     {
         var path = Path.Combine(Path.GetTempPath(), $"zb2-security-lab-{Guid.NewGuid():N}.txt");
@@ -46,4 +56,3 @@ public sealed class BuildFingerprintTests
         return path;
     }
 }
-

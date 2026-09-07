@@ -1,5 +1,7 @@
 [CmdletBinding()]
 param(
+# Keep these defaults synchronized with Core/Diagnostics/SupportedBuild.cs.
+# ZB2SecurityLab.Launcher.Tests enforces parity without requiring the launcher at runtime.
     [string]$GamePath,
     [string]$ExpectedExecutableSha256 = '66C3ED6829349AAC8B5CB5FDB2A85EF62D17C1BDED4334352AF7349CA608EA0A',
     [string]$ExpectedAssemblySha256 = 'C41A298975D35F0DAD0A05531BCE6E0B6E274D0DDF265217D65CE3AC5CBC84E1'
@@ -43,4 +45,3 @@ if ($results.IsMatch -contains $false) {
 }
 
 Write-Output 'Build fingerprint verified.'
-
