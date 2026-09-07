@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>ZB2SecurityLab.Launcher</AssemblyName>
+    <RootNamespace>ZB2SecurityLab.Launcher</RootNamespace>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <PublishTrimmed>false</PublishTrimmed>
+    <BepInExArchivePath Condition="'$(BepInExArchivePath)' == ''">$(MSBuildThisFileDirectory)..\..\.downloads\BepInEx_win_x64_5.4.23.5.zip</BepInExArchivePath>
+    <PluginOutputPath>$(MSBuildThisFileDirectory)..\ZB2SecurityLab.Plugin\bin\$(Configuration)\netstandard2.1</PluginOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ZB2SecurityLab.Core\ZB2SecurityLab.Core.csproj" />
+    <ProjectReference Include="..\ZB2SecurityLab.Plugin\ZB2SecurityLab.Plugin.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="$(BepInExArchivePath)" LogicalName="ZB2SecurityLab.Payload.BepInEx.zip" Condition="Exists('$(BepInExArchivePath)')" />
+    <EmbeddedResource Include="$(PluginOutputPath)\ZB2SecurityLab.Core.dll" LogicalName="ZB2SecurityLab.Payload.ZB2SecurityLab.Core.dll" />
+    <EmbeddedResource Include="$(PluginOutputPath)\ZB2SecurityLab.Plugin.dll" LogicalName="ZB2SecurityLab.Payload.ZB2SecurityLab.Plugin.dll" />
+    <EmbeddedResource Include="..\..\THIRD-PARTY-NOTICES.md" LogicalName="ZB2SecurityLab.THIRD-PARTY-NOTICES.md" />
+  </ItemGroup>
+
+  <Target Name="ValidateLauncherPayload" BeforeTargets="PrepareResources">
+    <Error Condition="'$(RequireLauncherPayload)' == 'true' and !Exists('$(BepInExArchivePath)')" Text="BepInEx archive is required at $(BepInExArchivePath)." />
+    <Error Condition="!Exists('$(PluginOutputPath)\ZB2SecurityLab.Core.dll')" Text="Build ZB2SecurityLab.Plugin before the launcher." />
+    <Error Condition="!Exists('$(PluginOutputPath)\ZB2SecurityLab.Plugin.dll')" Text="Build ZB2SecurityLab.Plugin before the launcher." />
+  </Target>
+</Project>

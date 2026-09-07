@@ -8,6 +8,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ZB2SecurityLab.Plugin", "sr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ZB2SecurityLab.Core.Tests", "tests\ZB2SecurityLab.Core.Tests\ZB2SecurityLab.Core.Tests.csproj", "{1E797BF6-0ADC-43E3-8652-06CC76D1A3E6}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ZB2SecurityLab.Launcher", "src\ZB2SecurityLab.Launcher\ZB2SecurityLab.Launcher.csproj", "{CDA35DDC-8D92-4A44-9542-E1F042E96D22}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ZB2SecurityLab.Launcher.Tests", "tests\ZB2SecurityLab.Launcher.Tests\ZB2SecurityLab.Launcher.Tests.csproj", "{C80A9D3D-AC04-4610-B172-0979B888A36B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -26,5 +30,13 @@ Global
 		{1E797BF6-0ADC-43E3-8652-06CC76D1A3E6}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1E797BF6-0ADC-43E3-8652-06CC76D1A3E6}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{1E797BF6-0ADC-43E3-8652-06CC76D1A3E6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CDA35DDC-8D92-4A44-9542-E1F042E96D22}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CDA35DDC-8D92-4A44-9542-E1F042E96D22}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CDA35DDC-8D92-4A44-9542-E1F042E96D22}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CDA35DDC-8D92-4A44-9542-E1F042E96D22}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C80A9D3D-AC04-4610-B172-0979B888A36B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C80A9D3D-AC04-4610-B172-0979B888A36B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C80A9D3D-AC04-4610-B172-0979B888A36B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C80A9D3D-AC04-4610-B172-0979B888A36B}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
