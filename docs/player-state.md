@@ -1,4 +1,4 @@
-# Estado do jogador — PoC 2 / PoC 3A
+# Estado do jogador — PoC 2 / PoC 3A / PoC 4A
 
 Mapeamento do build autorizado `24525702`, obtido por inspeção estática de `Assembly-CSharp.dll` e observação read-only. A existência de um campo ou mensagem não confirma uma vulnerabilidade nem prova ausência de validação em outros pontos.
 
@@ -6,7 +6,7 @@ Mapeamento do build autorizado `24525702`, obtido por inspeção estática de `A
 
 A classe concreta do jogador é `PlayerMain`, um `UnityEngine.MonoBehaviour`. O plugin obtém o jogador local por `ClientController.instance.GetMyPlayer()` e usa `PlayersController.instance.MyPlayer()` como fallback. `PlayerMain.HasLocalControl` diferencia o objeto controlado localmente de representações remotas.
 
-Os PoCs 1 e 2 não escrevem valores. O PoC 3A escreve temporariamente apenas `staminaFast` e `staminaSlow`, sob a guarda single-player e com restauração registrada antes da aplicação.
+Os PoCs 1 e 2 não escrevem valores. O PoC 3A escreve temporariamente apenas `staminaFast` e `staminaSlow`. O PoC 4A escreve somente `InventoryItem.ammo` após observar consumo. Os mesmos writes podem ser executados em single-player ou em multiplayer privado vinculado a grant; build, sessão, jogador e autorização são revalidados antes da observação/escrita.
 
 ## Object Graph
 
@@ -127,6 +127,21 @@ O build usa networking próprio sobre Facepunch Steamworks/Steam P2P, não `Netw
 
 Esses pontos são pistas de autoridade, não resultados de exploração. O PoC 2 não intercepta, cria ou envia qualquer pacote.
 
+## Multiplayer Session Identity
+
+| Attribute | Class/member | Meaning |
+|---|---|---|
+| Papel host | `ServerController.state == Started`, `mode == Multiplayer` | Host multiplayer pronto |
+| Papel client | `ClientController.state == Connected` | Client autenticado e aceito |
+| Lobby Steam | `ServerMatchmaking.CurrentLobby.Id` / `ClientMatchmaking.ConnectedLobby.Id` | Identidade efêmera da sessão Steam |
+| Owner | `Lobby.Owner.Id` | Steam ID do criador do lobby |
+| Game server | `Lobby.GetGameServer(...)` | Endpoint anunciado pelo lobby |
+| Servidor conectado | `SteamConnectionsController.ServerID`, `GetServerConnection().SteamID` | Endpoint P2P efetivo no client |
+| Conta local | `SteamController.MySteamID` | Tester local |
+| Jogador interno | `MultiplayerController.GetMyLobbyID()` | ID inteiro do jogador; não é o lobby Steam |
+
+`ClientController.State` contém `Off`, `Connecting`, `HandShaking` e `Connected`; somente `Connected` é elegível. `ServerController.State` contém `Off`, `Starting` e `Started`; somente `Started` é elegível. A autorização usa o par lobby/server, owner, conta local, papel, build e expiração.
+
 ## Candidate Tests
 
 | Test | Expected risk | Client value found | Network evidence | Recommended? |
@@ -135,7 +150,7 @@ Esses pontos são pistas de autoridade, não resultados de exploração. O PoC 2
 | Stamina | MEDIUM | `PlayerMain.staminaFast`, `staminaSlow`, `maxStamina` | Nenhuma sincronização direta encontrada | YES |
 | Movement Speed | HIGH | `PlayerMovement.walkSpeed`, `targetSpeed`, `speedCoef` | Posição é enviada pelo cliente e retransmitida pelo host | LATER |
 | Recoil | MEDIUM | `PlayerCamera.recoilMultiplier`, `DatabaseGun.recoil` | Vetor final do tiro é enviado; recoil não é | LATER |
-| Ammo | HIGH | `InventoryItem.ammo` | Ammo não aparece no sync de equipamento; shot event é separado | LATER |
+| Ammo | HIGH | `InventoryItem.ammo` | Ammo não aparece no sync de equipamento; shot event é separado | POC 4A / AUTHORIZED MULTIPLAYER |
 | Fire Rate | HIGH | `DatabaseGun.rof`, `PhysicalGun.Cooldown` | Shot event não carrega timing; validação temporal não foi confirmada | LATER |
 | Health | HIGH | `healthFast`, `healthSlow`, `healthState` | Host envia dano, mas somente o estado discreto de saúde é sincronizado | NO |
 
@@ -148,3 +163,13 @@ O teste de FOV captura e restaura exclusivamente `FOVController.UserDefinedFOV`.
 O teste de stamina captura `PlayerMain.staminaFast`, `staminaSlow` e `maxStamina`, escreve uma única vez `staminaFast = maxStamina` e `staminaSlow = maxStamina`, e restaura os dois valores mutados após no máximo 10 segundos. `maxStamina`, `staminaUsabilityCooldown`, `staminaRegenCooldown`, regeneração e fatores de drenagem nunca são alterados.
 
 Ambos os testes exigem o mesmo token de jogador durante toda a janela. Não há reaplicação por frame, alteração persistente ou observação remota nesta etapa.
+
+## Controlled Mutation Mapping — PoC 4A
+
+`PlayerArms.GunEquippedBehaviour` resolve o item por `GetEquippedInventoryItem`, lê input, consulta `PhysicalGun.ShouldFire` e só então chama `FireGunBehaviour`. Esse método produz dry-fire quando `InventoryItem.ammo == 0`; em caso contrário, `ShootGun` subtrai `DatabaseGun.ammoConsumption`, limita o resultado em zero e prossegue pelo fluxo normal de tiro, recoil, áudio, animação e `SyncShotOnline`.
+
+O reload permanece separado. `CanReload` exige `ammo < maxAmmo` e `PlayerInventory.HasAmmoOfType(DatabaseGun.ammoID)`. `ReloadGun` calcula o espaço, chama `PullStoredItems` e adiciona somente a quantidade retirada da reserva ao carregador.
+
+Infinite Ammo exige carregador cheio ao iniciar, captura a instância, slot, ID, `maxAmmo` e `ammoConsumption`, e não faz write inicial. Em cada `Update`, valores reduzidos de alvos conhecidos são repostos ao baseline com compare-and-set e readback. A reserva, `maxAmmo`, `ammoConsumption`, cooldown, cadência, recoil, spread, damage, seleção e rede nunca são escritos.
+
+Uma arma nova cheia é rastreada como outro alvo dentro do mesmo experimento. Seleção vazia, melee ou arma nova parcial pausa a proteção. Remoção/substituição de alvo, drift de configuração ou valor fora do intervalo encerra o teste como `INCONCLUSIVE` e aciona restauração dos alvos resolvíveis.

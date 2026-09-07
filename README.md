@@ -1,13 +1,13 @@
 # ZB2SecurityLab
 
-PoC de instrumentação e mutação controlada para um teste autorizado do Zumbi Blocks 2 Open Alpha. O plugin detecta o contexto da partida, mapeia o jogador local e permite dois testes locais de 10 segundos — FOV e recarga única de stamina — com restauração obrigatória. As mutações ficam desabilitadas por padrão e nunca alteram pacotes de rede, inventário ou saves.
+PoC de instrumentação e mutação controlada para um teste autorizado do Zumbi Blocks 2 Open Alpha. O plugin detecta o contexto da partida, mapeia o jogador local e permite três testes de 10 segundos — FOV, recarga única de stamina e Infinite Ammo reativo — com restauração obrigatória. Single-player é permitido diretamente; multiplayer exige um grant temporário vinculado ao lobby Steam, servidor, conta local e papel exatos. As mutações ficam desabilitadas por padrão e nunca alteram pacotes de rede, reserva de munição ou saves.
 
 ## Escopo de segurança
 
-- Use somente a cópia de laboratório do build `24525702` e servidor privado autorizado.
-- Não conecte a cópia instrumentada a servidores públicos.
+- Use somente o build `24525702` verificado e sessões privadas autorizadas.
+- Não execute mutações em servidores públicos.
 - Não há bypass, stealth, persistência, packet injection ou mecanismo de distribuição.
-- As mutações só podem ser habilitadas no build conhecido e em single-player, com ação manual pelo painel F8.
+- Mutation Mode e Authorized Multiplayer são opt-ins independentes; multiplayer também exige grant exato e não expirado.
 - Se Steam ou uma proteção impedir a cópia, pare e solicite ao desenvolvedor um build de laboratório.
 
 ## Build conhecido
@@ -27,9 +27,30 @@ dotnet test .\ZB2SecurityLab.sln --configuration Release
 pwsh -File .\scripts\Deploy-Plugin.ps1
 ```
 
-Inicie manualmente `lab-runtime\build-24525702\ZumbiBlocks2.exe` somente no ambiente autorizado. `F8` abre e fecha o painel. Fechar o painel durante um teste restaura o valor imediatamente. Os eventos ficam em `logs\security-tests\<session-id>.jsonl`; o log do loader fica em `lab-runtime\build-24525702\BepInEx\LogOutput.log`.
+Inicie manualmente `lab-runtime\build-24525702\ZumbiBlocks2.exe` somente no ambiente autorizado. `F8` abre e fecha o painel. Fechar o painel durante um teste restaura o valor imediatamente. Os eventos ficam em `BepInEx\logs\ZB2SecurityLab\<session-id>.jsonl`; o log do loader fica em `lab-runtime\build-24525702\BepInEx\LogOutput.log`.
 
-O diretório padrão dos logs pressupõe a estrutura deste repositório. Ele pode ser alterado em `BepInEx\config\com.igorgsbarbosa.zb2securitylab.cfg` após a primeira execução. Para habilitar explicitamente os botões de mutação, defina `Enabled = true` na seção `[ControlledMutations]`; o valor padrão é `false`.
+O diretório de logs pode ser alterado em `BepInEx\config\com.igorgsbarbosa.zb2securitylab.cfg`. Para habilitar os botões, defina `Enabled = true` em `[ControlledMutations]`; o padrão é `false`.
+
+Multiplayer permanece bloqueado até que `[AuthorizedMultiplayer] Enabled = true` e `GrantPath` aponte para um JSON válido. Não existe modo curinga nem botão para confiar automaticamente na sessão atual:
+
+```json
+{
+  "schemaVersion": 1,
+  "buildId": "24525702",
+  "steamLobbyId": "109775241012345678",
+  "serverSteamId": "76561198000000001",
+  "authorizedLocalSteamId": "76561198000000002",
+  "allowedRole": "CLIENT",
+  "expiresUtc": "2026-09-06T18:00:00Z",
+  "runLabel": "poc-4a-private-01"
+}
+```
+
+O grant deve corresponder ao lobby Friends Only atual e expirar em no máximo 24 horas. Mudança de lobby, servidor, papel, jogador ou autorização durante a janela encerra o experimento e solicita restauração.
+
+Infinite Ammo só pode iniciar com uma arma válida e carregador cheio. Durante a janela, cada redução observada em `InventoryItem.ammo` é reposta ao baseline; armas novas parciais, melee e seleção vazia pausam a proteção sem receber writes. A reserva permanece somente leitura. Consulte `docs/mutation-tests.md` antes da validação manual.
+
+Mapeamento e procedimentos detalhados: `docs/networking.md`, `docs/mutation-tests.md` e `docs/steam-runtime.md`.
 
 ## Projetos
 
@@ -38,3 +59,7 @@ O diretório padrão dos logs pressupõe a estrutura deste repositório. Ele pod
 - `ZB2SecurityLab.Core.Tests`: testes automatizados do código puro.
 
 Nenhuma DLL do jogo, runtime de laboratório, ferramenta ou log deve ser versionado.
+
+## Instalação Steam suportada
+
+`scripts\Resolve-SteamInstall.ps1` localiza o app Steam `1941780`. `Verify-Build.ps1 -GamePath <path>` aceita tanto a cópia de laboratório quanto uma instalação oficial, mas `Deploy-Plugin.ps1 -GamePath <path>` recusa destinos sem BepInEx já instalado. A instalação do loader é uma operação separada: os scripts deste repositório não substituem executável, `Assembly-CSharp.dll` ou outros arquivos originais do jogo.

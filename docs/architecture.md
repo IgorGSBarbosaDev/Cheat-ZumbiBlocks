@@ -36,6 +36,28 @@ Os únicos membros escritos são:
 
 `SaveGraphics.fov`, `maxStamina`, cooldowns, inventário, saves e rede permanecem intocados. Resultados do 3A são somente `LOCAL_ONLY` ou `INCONCLUSIVE`; estados de servidor ficam reservados para um teste multiplayer futuro e autorizado.
 
+## PoC 4A
+
+O PoC 4A adiciona Infinite Ammo reativo. O teste só arma quando a seleção atual é um `DatabaseGun` com `InventoryItem.ammo == DatabaseGun.maxAmmo`, `maxAmmo > 0` e `ammoConsumption > 0`. Não há write inicial. A validação original ocorreu em single-player; a fundação posterior permite o mesmo experimento em multiplayer privado autorizado sem alterar sua lógica de write.
+
+Enquanto o experimento está ativo, a guarda de build, partida, controle local, papel e token do jogador é reavaliada em todo `Update`. A política pura mantém alvos por identidade de instância; o adaptador Unity revalida item, slot, ID e configuração antes de qualquer compare-and-set. Um write ocorre apenas quando um alvo conhecido apresenta munição abaixo do baseline, atribuindo exclusivamente `InventoryItem.ammo = baseline` e confirmando a leitura imediatamente.
+
+Trocas para armas novas cheias adicionam alvos ao mesmo experimento. Armas parciais, melee e seleção vazia pausam sem write. Todos os alvos rastreados continuam sendo validados e são restaurados em ordem reversa. Cada write real produz um evento `controlled_mutation_write`; nenhum evento de tiro ou pacote é interceptado.
+
+## Authorized multiplayer foundation
+
+`LabContext` produz um `MultiplayerSessionSnapshot` tipado com estados finais de host/client, Steam Lobby ID, owner, game server, endpoint P2P, conta local e lobby-player ID. `AuthorizedSessionPolicy` compara esse snapshot a um grant JSON temporário. A ausência de qualquer identidade, estado final, sinal Friends Only ou correspondência exata bloqueia a mutação.
+
+`LabModeGuard` retorna `SINGLE_PLAYER`, `AUTHORIZED_MULTIPLAYER_CLIENT`, `AUTHORIZED_MULTIPLAYER_HOST` ou `NOT_ELIGIBLE`. Ao iniciar, `ExperimentCoordinator` fixa o token formado por build, sessão e jogador, além do identificador do grant. Ambos são reavaliados em todo `Update`; qualquer drift restaura e conclui como `INCONCLUSIVE`.
+
+FOV, Stamina e Infinite Ammo continuam independentes da autorização. O coordenador fornece o mesmo envelope de sessão aos três, preservando uma mutação ativa, timeout e restore. Nenhum novo membro do jogo é escrito.
+
+O JSONL possui campos explícitos para scope, papel, conexão, lobby, servidor, owner, conta local, autorização, execução e origem de evidência. `SERVER_ACCEPTED` e `SERVER_CORRECTED` exigem evidência explícita; funcionamento local ou ausência de desconexão não bastam.
+
+## Runtime oficial
+
+O plugin valida arquivos a partir de `Paths.GameRootPath`, portanto pode executar em qualquer instalação do build suportado. Compilação separa as referências do jogo das referências do loader. O deploy genérico verifica o fingerprint e exige BepInEx existente antes de copiar somente as duas DLLs do Security Lab. A instalação do loader não é automatizada.
+
 ## Limites
 
-Não existem patches Harmony, interceptação ou envio manual de mensagens, alteração de saves ou persistência das mutações. Encerramento abrupto do processo não permite callback de restauração, mas os campos escolhidos são exclusivamente runtime e não são gravados pelo plugin.
+Não existem patches Harmony, interceptação ou envio manual de mensagens, alteração de saves ou persistência das mutações. Encerramento abrupto do processo não permite callback de restauração; o plugin não grava saves, mas não pode executar a confirmação final nesse caso.
