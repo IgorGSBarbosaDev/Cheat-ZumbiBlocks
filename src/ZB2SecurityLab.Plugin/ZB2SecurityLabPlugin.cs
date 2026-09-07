@@ -19,7 +19,7 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
 {
     public const string PluginGuid = "com.igorgsbarbosa.zb2securitylab";
     public const string PluginName = "ZB2 Security Lab";
-    public const string PluginVersion = "0.3.0";
+    public const string PluginVersion = "0.5.0";
 
     private const float PollIntervalSeconds = 0.25f;
     private const float ErrorLogIntervalSeconds = 5f;
@@ -28,13 +28,17 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
     private readonly LabStateTracker _stateTracker = new();
     private readonly PlayerStateTracker _playerStateTracker = new();
     private readonly LabContext _labContext = new();
+    private readonly AuthorizedSessionGrantReader _authorizedSessionGrantReader = new();
     private readonly LabModeGuard _labModeGuard = new();
     private readonly ExperimentCoordinator _experimentCoordinator = new(durationSeconds: 10d);
 
     private ConfigEntry<KeyboardShortcut>? _toggleShortcut;
     private ConfigEntry<bool>? _mutationEnabled;
+    private ConfigEntry<bool>? _authorizedMultiplayerEnabled;
+    private ConfigEntry<string>? _authorizedSessionGrantPath;
     private JsonlEventWriter? _eventWriter;
     private LabSnapshot? _lastSnapshot;
+    private MultiplayerSessionSnapshot? _lastMutationSession;
     private MutationPanelCommand _pendingCommand;
     private string _sessionId = string.Empty;
     private string _buildStatus = "NOT CHECKED";
@@ -55,7 +59,17 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
             "ControlledMutations",
             "Enabled",
             false,
-            "Explicit opt-in for 10-second controlled mutations in single-player on the supported lab build only.");
+            "Explicit opt-in for 10-second controlled mutations on supported builds.");
+        _authorizedMultiplayerEnabled = Config.Bind(
+            "AuthorizedMultiplayer",
+            "Enabled",
+            false,
+            "Independent opt-in for exact, grant-bound private multiplayer sessions.");
+        _authorizedSessionGrantPath = Config.Bind(
+            "AuthorizedMultiplayer",
+            "GrantPath",
+            DefaultAuthorizationGrantPath(),
+            "Absolute path to the short-lived authorized-session JSON grant.");
 
         var outputDirectory = Config.Bind(
             "Diagnostics",
@@ -71,7 +85,8 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
             WriteEvent("INSTRUMENTATION_INITIALIZED", $"unity={Application.unityVersion};status={_buildStatus};mutations={MutationEnabled}");
             Logger.LogInfo($"{PluginName} {PluginVersion} initialized. Build {_buildStatus}.");
             Logger.LogInfo($"Diagnostic events: {_eventWriter.FilePath}");
-            Logger.LogInfo($"Controlled mutations: {(MutationEnabled ? "ENABLED" : "DISABLED")} (single-player only).");
+            Logger.LogInfo($"Controlled mutations: {(MutationEnabled ? "ENABLED" : "DISABLED")}.");
+            Logger.LogInfo($"Authorized multiplayer: {(AuthorizedMultiplayerEnabled ? "ENABLED" : "DISABLED")} (exact session grant required).");
         }
         catch (Exception exception)
         {
@@ -101,9 +116,10 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
         if (Time.unscaledTime >= _nextPollTime)
         {
             _nextPollTime = Time.unscaledTime + PollIntervalSeconds;
-            PollContextAndExperiment();
+            PollContext();
         }
 
+        TickActiveExperiment();
         ProcessPendingCommand();
     }
 
@@ -134,7 +150,7 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
         _eventWriter = null;
     }
 
-    private void PollContextAndExperiment()
+    private void PollContext()
     {
         try
         {
@@ -158,14 +174,6 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
                     context: BuildEventContext(_lastSnapshot));
             }
 
-            if (_experimentCoordinator.ActiveExperiment is not null)
-            {
-                var decision = _labModeGuard.Evaluate(BuildEligibilityContext(_lastSnapshot));
-                WriteMutationEvents(_experimentCoordinator.Tick(
-                    Time.unscaledTime,
-                    decision,
-                    _lastSnapshot.LocalPlayerToken));
-            }
         }
         catch (Exception exception)
         {
@@ -175,6 +183,35 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
                 _nextErrorLogTime = Time.unscaledTime + ErrorLogIntervalSeconds;
                 Logger.LogError($"Game context capture failed: {exception}");
                 WriteEvent("CONTEXT_CAPTURE_FAILED", null, exception.ToString());
+            }
+        }
+    }
+
+    private void TickActiveExperiment()
+    {
+        if (_experimentCoordinator.ActiveExperiment is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var context = CaptureMutationEligibility();
+            _lastMutationSession = context.MultiplayerSession;
+            var decision = _labModeGuard.Evaluate(context);
+            WriteMutationEvents(_experimentCoordinator.Tick(
+                Time.unscaledTime,
+                decision,
+                context.PlayerToken));
+        }
+        catch (Exception exception)
+        {
+            WriteMutationEvents(_experimentCoordinator.Stop(RestoreReason.CONTEXT_INVALID, exception.Message));
+            if (Time.unscaledTime >= _nextErrorLogTime)
+            {
+                _nextErrorLogTime = Time.unscaledTime + ErrorLogIntervalSeconds;
+                Logger.LogError($"Mutation context capture failed: {exception}");
+                WriteEvent("MUTATION_CONTEXT_CAPTURE_FAILED", null, exception.ToString());
             }
         }
     }
@@ -194,7 +231,13 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
             return;
         }
 
-        var testId = command == MutationPanelCommand.RUN_FOV ? "FOV" : "STAMINA";
+        var testId = command switch
+        {
+            MutationPanelCommand.RUN_FOV => "FOV",
+            MutationPanelCommand.RUN_STAMINA => "STAMINA",
+            MutationPanelCommand.RUN_INFINITE_AMMO => "INFINITE_AMMO",
+            _ => "UNKNOWN"
+        };
         WriteMutationEvent(new MutationLifecycleEvent { TestId = testId, Phase = MutationPhase.REQUESTED });
 
         try
@@ -213,11 +256,16 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
             return;
         }
 
-        var decision = _labModeGuard.Evaluate(BuildEligibilityContext(_lastSnapshot));
+        var eligibilityContext = CaptureMutationEligibility();
+        _lastMutationSession = eligibilityContext.MultiplayerSession;
+        var decision = _labModeGuard.Evaluate(eligibilityContext);
         WriteMutationEvent(new MutationLifecycleEvent
         {
             TestId = testId,
             Phase = MutationPhase.ELIGIBILITY_CHECKED,
+            ExecutionScope = decision.Scope,
+            SessionToken = decision.SessionToken,
+            AuthorizationId = decision.AuthorizationId,
             LocalObservedValue = decision.Reason,
             Error = decision.Allowed ? null : decision.Reason
         });
@@ -227,6 +275,9 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
             {
                 TestId = testId,
                 Phase = MutationPhase.BLOCKED,
+                ExecutionScope = decision.Scope,
+                SessionToken = decision.SessionToken,
+                AuthorizationId = decision.AuthorizationId,
                 Outcome = TestOutcome.INCONCLUSIVE,
                 Error = decision.Reason
             });
@@ -235,7 +286,9 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
 
         var player = _labContext.GetLocalPlayer();
         var playerToken = player == null ? null : player.GetInstanceID().ToString(CultureInfo.InvariantCulture);
-        if (player == null || !string.Equals(playerToken, _lastSnapshot.LocalPlayerToken, StringComparison.Ordinal))
+        if (player == null ||
+            !string.Equals(playerToken, _lastSnapshot.LocalPlayerToken, StringComparison.Ordinal) ||
+            !string.Equals(playerToken, eligibilityContext.PlayerToken, StringComparison.Ordinal))
         {
             WriteMutationEvent(new MutationLifecycleEvent
             {
@@ -247,19 +300,47 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
             return;
         }
 
-        ILabExperiment experiment = command == MutationPanelCommand.RUN_FOV
-            ? new FovMutationTest(playerToken!)
-            : new StaminaMutationTest(player, playerToken!);
-        WriteMutationEvents(_experimentCoordinator.Start(experiment, Time.unscaledTime));
+        ILabExperiment experiment;
+        if (command == MutationPanelCommand.RUN_FOV)
+        {
+            experiment = new FovMutationTest(playerToken!);
+        }
+        else if (command == MutationPanelCommand.RUN_STAMINA)
+        {
+            experiment = new StaminaMutationTest(player, playerToken!);
+        }
+        else
+        {
+            var ammoExperiment = new InfiniteAmmoMutationTest(player, playerToken!);
+            if (!ammoExperiment.CanStart(out var reason))
+            {
+                WriteMutationEvent(new MutationLifecycleEvent
+                {
+                    TestId = testId,
+                    Phase = MutationPhase.BLOCKED,
+                    Outcome = TestOutcome.INCONCLUSIVE,
+                    LocalObservedValue = reason,
+                    Error = reason
+                });
+                return;
+            }
+
+            experiment = ammoExperiment;
+        }
+
+        WriteMutationEvents(_experimentCoordinator.Start(experiment, Time.unscaledTime, decision));
     }
 
     private MutationPanelState BuildMutationPanelState()
     {
         var decision = _labModeGuard.Evaluate(BuildEligibilityContext(_lastSnapshot));
         var active = _experimentCoordinator.ActiveExperiment;
+        var ammoReason = AmmoEligibilityReason(_lastSnapshot);
+        var ammoExperiment = active as InfiniteAmmoMutationTest;
         return new MutationPanelState
         {
             MutationsEnabled = MutationEnabled,
+            AuthorizedMultiplayerEnabled = AuthorizedMultiplayerEnabled,
             Eligible = decision.Allowed && active is null,
             EligibilityReason = active is null ? decision.Reason : "EXPERIMENT_ALREADY_ACTIVE",
             IsActive = active is not null,
@@ -268,12 +349,47 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
             OriginalValue = active?.OriginalValue,
             RequestedValue = active?.RequestedValue,
             LocalObservedValue = active?.LocalObservedValue,
-            LastResult = _experimentCoordinator.LastResult
+            LastResult = _experimentCoordinator.LastResult,
+            AmmoEligible = decision.Allowed && active is null && string.Equals(ammoReason, "AMMO_READY", StringComparison.Ordinal),
+            AmmoEligibilityReason = decision.Allowed ? ammoReason : decision.Reason,
+            ActiveTarget = ammoExperiment?.ActiveTarget,
+            TrackedTargetCount = ammoExperiment?.TrackedTargetCount,
+            WriteCount = ammoExperiment?.WriteCount,
+            PausedReason = ammoExperiment?.PausedReason,
+            ExecutionScope = decision.Scope,
+            AuthorizationId = decision.AuthorizationId,
+            SteamLobbyId = _lastSnapshot?.MultiplayerSession?.SteamLobbyId,
+            ServerSteamId = _lastSnapshot?.MultiplayerSession?.ServerSteamId
         };
+    }
+
+    private static string AmmoEligibilityReason(LabSnapshot? snapshot)
+    {
+        var weapon = snapshot?.Weapon;
+        if (weapon is null)
+        {
+            return "NO_WEAPON_SELECTED";
+        }
+
+        if (!weapon.IsGun)
+        {
+            return "SELECTED_ITEM_IS_NOT_A_GUN";
+        }
+
+        if (!weapon.Ammo.HasValue || !weapon.MagazineSize.HasValue || !weapon.AmmoConsumption.HasValue ||
+            weapon.MagazineSize.Value <= 0 || weapon.AmmoConsumption.Value <= 0)
+        {
+            return "INVALID_AMMO_CONFIGURATION";
+        }
+
+        return weapon.Ammo.Value == weapon.MagazineSize.Value
+            ? "AMMO_READY"
+            : "MAGAZINE_NOT_FULL";
     }
 
     private MutationEligibilityContext BuildEligibilityContext(LabSnapshot? snapshot)
     {
+        var grant = ReadAuthorizationGrant();
         return new MutationEligibilityContext
         {
             MutationEnabled = MutationEnabled,
@@ -282,11 +398,36 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
             LocalPlayerAvailable = snapshot?.LocalPlayerAvailable == true,
             HasLocalControl = snapshot?.HasLocalControl == true,
             Role = snapshot?.Role ?? "UNKNOWN",
-            PlayerToken = snapshot?.LocalPlayerToken
+            PlayerToken = snapshot?.LocalPlayerToken,
+            BuildId = KnownBuild.BuildId,
+            ObservedAtUtc = DateTimeOffset.UtcNow,
+            AuthorizedMultiplayerEnabled = AuthorizedMultiplayerEnabled,
+            AuthorizationGrant = grant.Grant,
+            AuthorizationGrantError = grant.Error,
+            MultiplayerSession = snapshot?.MultiplayerSession
         };
     }
 
     private bool MutationEnabled => _mutationEnabled?.Value == true;
+
+    private bool AuthorizedMultiplayerEnabled => _authorizedMultiplayerEnabled?.Value == true;
+
+    private MutationEligibilityContext CaptureMutationEligibility()
+    {
+        var grant = ReadAuthorizationGrant();
+        return _labContext.CaptureMutationEligibility(
+            MutationEnabled,
+            _buildSupported,
+            AuthorizedMultiplayerEnabled,
+            grant.Grant,
+            grant.Error,
+            KnownBuild.BuildId);
+    }
+
+    private AuthorizedSessionGrantReadResult ReadAuthorizationGrant()
+    {
+        return _authorizedSessionGrantReader.Read(_authorizedSessionGrantPath?.Value ?? string.Empty);
+    }
 
     private void VerifyBuild()
     {
@@ -328,6 +469,11 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
 
         try
         {
+            var network = _lastMutationSession ?? _lastSnapshot?.MultiplayerSession;
+            var serverEvidence = mutationEvent.ServerEvidence ??
+                (network?.Role == NetworkRole.SINGLE_PLAYER
+                    ? ServerEvidenceKind.NOT_APPLICABLE
+                    : ServerEvidenceKind.NOT_OBSERVED);
             _eventWriter.Write(new SecurityTestEvent
             {
                 TimestampUtc = DateTimeOffset.UtcNow,
@@ -336,19 +482,36 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
                 BuildFingerprint = _buildFingerprint,
                 Test = mutationEvent.TestId,
                 Phase = mutationEvent.Phase.ToString(),
-                Event = "controlled_mutation",
-                Context = BuildEventContext(_lastSnapshot),
+                Event = mutationEvent.Event ?? "controlled_mutation",
+                OldValue = mutationEvent.OldValue,
+                NewValue = mutationEvent.NewValue,
+                Context = CombineContext(BuildEventContext(_lastSnapshot), mutationEvent.Context),
                 OriginalValue = mutationEvent.OriginalValue,
                 RequestedValue = mutationEvent.RequestedValue,
                 LocalObservedValue = mutationEvent.LocalObservedValue,
-                RemoteObservedValue = null,
-                ServerEvidence = "NOT_EVALUATED_SINGLE_PLAYER_ONLY",
+                RemoteObservedValue = mutationEvent.RemoteObservedValue,
+                ServerEvidence = serverEvidence.ToString(),
+                ExecutionScope = mutationEvent.ExecutionScope?.ToString(),
+                NetworkMode = NetworkMode(network),
+                NetworkRole = network?.Role.ToString() ?? _lastSnapshot?.Role,
+                ConnectionState = network?.ConnectionState ?? _lastSnapshot?.ConnectionState,
+                SteamLobbyId = network?.SteamLobbyId,
+                ServerSteamId = network?.ServerSteamId,
+                LobbyOwnerSteamId = network?.LobbyOwnerSteamId,
+                LocalSteamId = network?.LocalSteamId,
+                LocalLobbyPlayerId = network?.LocalLobbyPlayerId,
+                AuthorizationId = mutationEvent.AuthorizationId,
+                AuthorizationDecision = mutationEvent.Phase == MutationPhase.ELIGIBILITY_CHECKED
+                    ? mutationEvent.LocalObservedValue
+                    : null,
+                ExperimentRunId = mutationEvent.ExperimentRunId,
+                EvidenceSource = mutationEvent.EvidenceSource,
                 Outcome = mutationEvent.Outcome,
                 RestoreReason = mutationEvent.RestoreReason?.ToString(),
                 RestoreSucceeded = mutationEvent.RestoreSucceeded,
-                ServerCorrected = null,
-                ServerAccepted = null,
-                Disconnected = false,
+                ServerCorrected = serverEvidence == ServerEvidenceKind.CORRECTED ? true : null,
+                ServerAccepted = serverEvidence == ServerEvidenceKind.ACCEPTED ? true : null,
+                Disconnected = IsDisconnected(network, mutationEvent.ExecutionScope),
                 Error = mutationEvent.Error
             });
         }
@@ -374,6 +537,7 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
 
         try
         {
+            var network = _lastSnapshot?.MultiplayerSession;
             _eventWriter.Write(new SecurityTestEvent
             {
                 TimestampUtc = DateTimeOffset.UtcNow,
@@ -388,6 +552,14 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
                 Context = context,
                 OriginalValue = oldValue,
                 LocalObservedValue = observedValue,
+                NetworkMode = NetworkMode(network),
+                NetworkRole = network?.Role.ToString() ?? _lastSnapshot?.Role,
+                ConnectionState = network?.ConnectionState ?? _lastSnapshot?.ConnectionState,
+                SteamLobbyId = network?.SteamLobbyId,
+                ServerSteamId = network?.ServerSteamId,
+                LobbyOwnerSteamId = network?.LobbyOwnerSteamId,
+                LocalSteamId = network?.LocalSteamId,
+                LocalLobbyPlayerId = network?.LocalLobbyPlayerId,
                 Disconnected = false,
                 Error = error
             });
@@ -402,11 +574,38 @@ public sealed class ZB2SecurityLabPlugin : BaseUnityPlugin
     {
         return snapshot is null
             ? null
-            : $"playerToken={snapshot.LocalPlayerToken ?? "NULL"};role={snapshot.Role};lobby={snapshot.LobbyId ?? "NULL"};weapon={snapshot.Weapon?.Id ?? "NONE"}";
+            : $"playerToken={snapshot.LocalPlayerToken ?? "NULL"};role={snapshot.Role};steamLobby={snapshot.MultiplayerSession?.SteamLobbyId ?? "NULL"};serverSteam={snapshot.MultiplayerSession?.ServerSteamId ?? "NULL"};localLobbyPlayer={snapshot.MultiplayerSession?.LocalLobbyPlayerId?.ToString(CultureInfo.InvariantCulture) ?? "NULL"};weapon={snapshot.Weapon?.Id ?? "NONE"}";
+    }
+
+    private static string? CombineContext(string? sessionContext, string? eventContext)
+    {
+        if (sessionContext is null)
+        {
+            return eventContext;
+        }
+
+        return eventContext is null ? sessionContext : $"{sessionContext};{eventContext}";
     }
 
     private static string DefaultOutputDirectory()
     {
-        return Path.GetFullPath(Path.Combine(Paths.GameRootPath, "..", "..", "logs", "security-tests"));
+        return Path.GetFullPath(Path.Combine(Paths.BepInExRootPath, "logs", "ZB2SecurityLab"));
+    }
+
+    private static string DefaultAuthorizationGrantPath()
+    {
+        return Path.GetFullPath(Path.Combine(Paths.ConfigPath, "ZB2SecurityLab", "authorized-session.json"));
+    }
+
+    private static string NetworkMode(MultiplayerSessionSnapshot? network)
+    {
+        return network is null ? "UNKNOWN" : network.IsMultiplayer ? "MULTIPLAYER" : "SINGLE_PLAYER";
+    }
+
+    private static bool IsDisconnected(
+        MultiplayerSessionSnapshot? network,
+        MutationExecutionScope? executionScope)
+    {
+        return executionScope == MutationExecutionScope.AUTHORIZED_MULTIPLAYER_CLIENT && network?.ClientConnected != true;
     }
 }

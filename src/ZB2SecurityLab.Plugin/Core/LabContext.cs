@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using Steamworks;
+using Steamworks.Data;
 using ZB2SecurityLab.Core.Diagnostics;
+using ZB2SecurityLab.Core.Experiments;
 
 namespace ZB2SecurityLab.Plugin.Core;
 
@@ -10,19 +13,23 @@ internal sealed class LabContext
 {
     internal LabSnapshot Capture()
     {
-        var multiplayerController = MultiplayerController.instance;
         var clientController = ClientController.instance;
-        var serverController = ServerController.instance;
         var player = GetLocalPlayer();
+        var multiplayerSession = CaptureMultiplayerSession();
         var snapshot = new LabSnapshot
         {
             InGame = MatchController.instance != null && MatchController.InGame,
             LocalPlayerAvailable = player != null,
             HasLocalControl = player != null && player.HasLocalControl,
             LocalPlayerToken = player == null ? null : player.GetInstanceID().ToString(CultureInfo.InvariantCulture),
-            Role = ResolveRole(multiplayerController),
-            ConnectionState = ResolveConnectionState(clientController, serverController),
-            LobbyId = ResolveLobbyId(multiplayerController),
+            Role = multiplayerSession.Role.ToString(),
+            ConnectionState = multiplayerSession.ConnectionState,
+            LobbyId = multiplayerSession.SteamLobbyId,
+            LocalLobbyPlayerId = multiplayerSession.LocalLobbyPlayerId,
+            ServerSteamId = multiplayerSession.ServerSteamId,
+            LobbyOwnerSteamId = multiplayerSession.LobbyOwnerSteamId,
+            LocalSteamId = multiplayerSession.LocalSteamId,
+            MultiplayerSession = multiplayerSession,
             PingMilliseconds = clientController == null ? null : clientController.myPingInMS
         };
 
@@ -114,6 +121,7 @@ internal sealed class LabContext
 
         weapon.ReserveAmmo = inventory.StoredItemCount(databaseGun.ammoID);
         weapon.MagazineSize = databaseGun.maxAmmo;
+        weapon.AmmoConsumption = databaseGun.ammoConsumption;
         weapon.FireRate = databaseGun.rof;
         weapon.FireIntervalSeconds = databaseGun.rof > 0f ? 1f / databaseGun.rof : null;
         weapon.CooldownSeconds = physicalGun == null ? null : physicalGun.Cooldown;
@@ -290,48 +298,138 @@ internal sealed class LabContext
         return player;
     }
 
-    private static string ResolveRole(MultiplayerController? controller)
+    internal MutationEligibilityContext CaptureMutationEligibility(
+        bool mutationEnabled,
+        bool buildSupported,
+        bool authorizedMultiplayerEnabled,
+        AuthorizedSessionGrant? authorizationGrant,
+        string? authorizationGrantError,
+        string buildId)
     {
+        var player = GetLocalPlayer();
+        var multiplayerSession = CaptureMultiplayerSession();
+        return new MutationEligibilityContext
+        {
+            MutationEnabled = mutationEnabled,
+            BuildSupported = buildSupported,
+            InGame = MatchController.instance != null && MatchController.InGame,
+            LocalPlayerAvailable = player != null,
+            HasLocalControl = player != null && player.HasLocalControl,
+            Role = multiplayerSession.Role.ToString(),
+            PlayerToken = player == null ? null : player.GetInstanceID().ToString(CultureInfo.InvariantCulture),
+            BuildId = buildId,
+            ObservedAtUtc = DateTimeOffset.UtcNow,
+            AuthorizedMultiplayerEnabled = authorizedMultiplayerEnabled,
+            AuthorizationGrant = authorizationGrant,
+            AuthorizationGrantError = authorizationGrantError,
+            MultiplayerSession = multiplayerSession
+        };
+    }
+
+    private static MultiplayerSessionSnapshot CaptureMultiplayerSession()
+    {
+        var controller = MultiplayerController.instance;
+        var client = ClientController.instance;
+        var server = ServerController.instance;
+        var connections = SteamConnectionsController.instance;
+        var steam = SteamController.instance;
         if (controller == null)
         {
-            return "UNKNOWN";
+            return new MultiplayerSessionSnapshot();
         }
 
-        if (controller.IsSinglePlayer)
+        var serverStarted = server != null && server.state == ServerController.State.Started;
+        var serverSinglePlayer = server != null && server.mode == ServerController.Mode.Singleplayer;
+        var serverMultiplayer = server != null && server.mode == ServerController.Mode.Multiplayer;
+        var clientConnected = client != null && client.state == ClientController.State.Connected;
+        var role = NetworkRole.OFFLINE;
+        if (server != null && server.state != ServerController.State.Off && serverSinglePlayer)
         {
-            return "SINGLE_PLAYER";
+            role = NetworkRole.SINGLE_PLAYER;
         }
-
-        if (controller.IsServer())
+        else if (server != null && server.state != ServerController.State.Off && serverMultiplayer)
         {
-            return "HOST";
+            role = NetworkRole.HOST;
         }
-
-        if (controller.IsClient())
+        else if (client != null && client.state != ClientController.State.Off)
         {
-            return "CLIENT";
+            role = NetworkRole.CLIENT;
         }
 
-        return "OFFLINE";
+        var result = new MultiplayerSessionSnapshot
+        {
+            Role = role,
+            ConnectionState = role == NetworkRole.CLIENT
+                ? $"CLIENT:{client?.state.ToString() ?? "UNAVAILABLE"}"
+                : $"SERVER:{server?.state.ToString() ?? "UNAVAILABLE"}/{server?.mode.ToString() ?? "UNAVAILABLE"}",
+            IsMultiplayer = role == NetworkRole.CLIENT || role == NetworkRole.HOST,
+            ServerStarted = serverStarted,
+            ServerMultiplayerMode = serverMultiplayer,
+            ServerSinglePlayerMode = serverSinglePlayer,
+            ClientConnected = clientConnected,
+            ClientMatchmakingConnected = client != null && client.Matchmaking != null && client.Matchmaking.IsConnected,
+            ServerLobbyLaunched = server != null && server.Matchmaking != null && server.Matchmaking.LobbyLaunched,
+            LocalSteamId = steam == null ? null : ValidSteamId(steam.MySteamID),
+            LocalLobbyPlayerId = controller.KnowMyLobbyID() ? controller.GetMyLobbyID() : null
+        };
+
+        var hasLobby = false;
+        Lobby lobby = default;
+        var serverMatchmaking = server?.Matchmaking;
+        var clientMatchmaking = client?.Matchmaking;
+        if (role == NetworkRole.HOST && result.ServerLobbyLaunched && serverMatchmaking != null)
+        {
+            lobby = serverMatchmaking.CurrentLobby;
+            hasLobby = lobby.Id.IsValid;
+        }
+        else if (role == NetworkRole.CLIENT && result.ClientMatchmakingConnected && clientMatchmaking != null)
+        {
+            lobby = clientMatchmaking.ConnectedLobby;
+            hasLobby = lobby.Id.IsValid;
+        }
+
+        if (hasLobby)
+        {
+            result.SteamLobbyId = ValidSteamId(lobby.Id);
+            result.LobbyOwnerSteamId = ValidSteamId(lobby.Owner.Id);
+            result.LobbyRegion = lobby.GetData("region");
+            result.LobbyVersion = lobby.GetData("version");
+            uint gameServerIp = 0;
+            ushort gameServerPort = 0;
+            SteamId gameServerId = default;
+            if (lobby.GetGameServer(ref gameServerIp, ref gameServerPort, ref gameServerId))
+            {
+                result.GameServerSteamId = ValidSteamId(gameServerId);
+            }
+        }
+
+        if (role == NetworkRole.CLIENT && connections != null)
+        {
+            result.ServerSteamId = ValidSteamId(connections.ServerID);
+            try
+            {
+                var serverConnection = connections.GetServerConnection();
+                result.ServerConnectionResolved = serverConnection != null;
+                result.ServerConnectionSteamId = serverConnection == null
+                    ? null
+                    : ValidSteamId(serverConnection.SteamID);
+            }
+            catch
+            {
+                result.ServerConnectionResolved = false;
+                result.ServerConnectionSteamId = null;
+            }
+        }
+        else if (role == NetworkRole.HOST)
+        {
+            result.ServerSteamId = result.GameServerSteamId;
+        }
+
+        result.FriendsOnlySignal = role == NetworkRole.HOST
+            ? server?.FriendsOnly == true
+            : role == NetworkRole.CLIENT && string.Equals(result.LobbyRegion, WorldRegion.Friends.ToString(), StringComparison.Ordinal);
+        return result;
     }
 
-    private static string ResolveConnectionState(ClientController? client, ServerController? server)
-    {
-        if (client != null)
-        {
-            return $"CLIENT:{client.state}";
-        }
-
-        return server == null ? "UNKNOWN" : $"SERVER:{server.state}";
-    }
-
-    private static string? ResolveLobbyId(MultiplayerController? controller)
-    {
-        if (controller == null || !controller.KnowMyLobbyID())
-        {
-            return null;
-        }
-
-        return controller.GetMyLobbyID().ToString(CultureInfo.InvariantCulture);
-    }
+    private static string? ValidSteamId(SteamId id) => id.IsValid ? id.ToString() : null;
 }

@@ -10,6 +10,7 @@ internal enum MutationPanelCommand
     NONE,
     RUN_FOV,
     RUN_STAMINA,
+    RUN_INFINITE_AMMO,
     RESTORE
 }
 
@@ -39,7 +40,7 @@ internal sealed class DiagnosticPanel
         GUILayout.BeginArea(new Rect(panelRect.x + 12f, panelRect.y + 10f, panelRect.width - 24f, panelRect.height - 20f));
         _scrollPosition = GUILayout.BeginScrollView(_scrollPosition);
         GUILayout.Label("ZB2 SECURITY LAB — CONTROLLED MUTATION");
-        GUILayout.Label("SINGLE-PLAYER LAB COPY ONLY");
+        GUILayout.Label("SINGLE-PLAYER + GRANT-BOUND AUTHORIZED MULTIPLAYER");
         GUILayout.Space(6f);
         GUILayout.Label($"Build: {(buildSupported ? "SUPPORTED" : "BLOCKED")}");
         GUILayout.Label(buildStatus);
@@ -74,8 +75,19 @@ internal sealed class DiagnosticPanel
     {
         Section("CONTROLLED MUTATIONS");
         GUILayout.Label($"Configuration: {(state.MutationsEnabled ? "ENABLED" : "DISABLED")}");
+        GUILayout.Label($"Authorized multiplayer: {(state.AuthorizedMultiplayerEnabled ? "ENABLED" : "DISABLED")}");
         GUILayout.Label($"Eligibility: {(state.Eligible ? "ALLOWED" : state.EligibilityReason)}");
-        GUILayout.Label("Each mutation is single-write and auto-restores after 10 seconds.");
+        GUILayout.Label($"Scope: {state.ExecutionScope}");
+        if (state.AuthorizationId is not null)
+        {
+            GUILayout.Label($"Authorization: {state.AuthorizationId}");
+        }
+
+        if (state.SteamLobbyId is not null)
+        {
+            GUILayout.Label($"Authorized session: lobby {state.SteamLobbyId} / server {state.ServerSteamId ?? "UNKNOWN"}");
+        }
+        GUILayout.Label("All mutations auto-restore after 10 seconds.");
 
         if (state.IsActive)
         {
@@ -84,7 +96,18 @@ internal sealed class DiagnosticPanel
             GUILayout.Label($"Baseline: {state.OriginalValue ?? "PENDING"}");
             GUILayout.Label($"Requested: {state.RequestedValue ?? "PENDING"}");
             GUILayout.Label($"Observed: {state.LocalObservedValue ?? "PENDING"}");
-            GUILayout.Label("Stamina restoration intentionally replaces drain/regen during the window.");
+            if (string.Equals(state.ActiveTestId, "STAMINA", System.StringComparison.Ordinal))
+            {
+                GUILayout.Label("Stamina restoration intentionally replaces drain/regen during the window.");
+            }
+
+            if (string.Equals(state.ActiveTestId, "INFINITE_AMMO", System.StringComparison.Ordinal))
+            {
+                GUILayout.Label($"Target: {state.ActiveTarget ?? "NONE"}");
+                GUILayout.Label($"Tracked weapons: {state.TrackedTargetCount.GetValueOrDefault()}");
+                GUILayout.Label($"Confirmed writes: {state.WriteCount.GetValueOrDefault()}");
+                GUILayout.Label($"Protection: {(state.PausedReason is null ? "ACTIVE" : $"PAUSED — {state.PausedReason}")}");
+            }
             if (GUILayout.Button("Restore Now"))
             {
                 return MutationPanelCommand.RESTORE;
@@ -106,12 +129,26 @@ internal sealed class DiagnosticPanel
                 return MutationPanelCommand.RUN_STAMINA;
             }
 
+            GUI.enabled = state.AmmoEligible;
+            if (GUILayout.Button("Run Infinite Ammo (10 s)"))
+            {
+                GUI.enabled = previousEnabled;
+                return MutationPanelCommand.RUN_INFINITE_AMMO;
+            }
+
+            if (!state.AmmoEligible)
+            {
+                GUILayout.Label($"Infinite Ammo: {state.AmmoEligibilityReason}");
+            }
+
             GUI.enabled = previousEnabled;
         }
 
         if (state.LastResult != null)
         {
             GUILayout.Label($"Last result: {state.LastResult.TestId} / {state.LastResult.Outcome}");
+            GUILayout.Label($"Last scope: {state.LastResult.ExecutionScope}");
+            GUILayout.Label($"Server evidence: {state.LastResult.ServerEvidence}");
             GUILayout.Label($"Restore: {(state.LastResult.RestoreSucceeded ? "CONFIRMED" : "FAILED")}");
             GUILayout.Label($"Reason: {state.LastResult.RestoreReason}");
             if (state.LastResult.Error is not null)
@@ -177,6 +214,7 @@ internal sealed class DiagnosticPanel
         }
 
         GUILayout.Label($"Ammo: {NullableNumber(weapon.Ammo)} / {NullableNumber(weapon.MagazineSize)}");
+        GUILayout.Label($"Ammo consumption: {NullableNumber(weapon.AmmoConsumption)} per shot");
         GUILayout.Label($"Reserve: {NullableNumber(weapon.ReserveAmmo)}");
         GUILayout.Label($"Fire rate: {NullableNumber(weapon.FireRate)} shots/s");
         GUILayout.Label($"Fire interval: {NullableNumber(weapon.FireIntervalSeconds)} s");
@@ -239,7 +277,11 @@ internal sealed class DiagnosticPanel
         GUILayout.Label($"Local control: {YesNo(snapshot.HasLocalControl)}");
         GUILayout.Label($"Role: {snapshot.Role}");
         GUILayout.Label($"Connection: {snapshot.ConnectionState}");
-        GUILayout.Label($"Lobby ID: {snapshot.LobbyId ?? "UNKNOWN"}");
+        GUILayout.Label($"Steam lobby ID: {snapshot.MultiplayerSession?.SteamLobbyId ?? "UNKNOWN"}");
+        GUILayout.Label($"Server Steam ID: {snapshot.MultiplayerSession?.ServerSteamId ?? "UNKNOWN"}");
+        GUILayout.Label($"Lobby owner Steam ID: {snapshot.MultiplayerSession?.LobbyOwnerSteamId ?? "UNKNOWN"}");
+        GUILayout.Label($"Local lobby player ID: {snapshot.MultiplayerSession?.LocalLobbyPlayerId?.ToString(CultureInfo.InvariantCulture) ?? "UNKNOWN"}");
+        GUILayout.Label($"Friends-only signal: {YesNo(snapshot.MultiplayerSession?.FriendsOnlySignal == true)}");
         GUILayout.Label($"Ping: {(snapshot.PingMilliseconds.HasValue ? snapshot.PingMilliseconds + " ms" : "UNKNOWN")}");
     }
 

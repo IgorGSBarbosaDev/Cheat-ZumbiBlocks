@@ -5,7 +5,8 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Deterministic>true</Deterministic>
     <LabRuntimePath Condition="'$(LabRuntimePath)' == ''">$(MSBuildThisFileDirectory)lab-runtime\build-24525702</LabRuntimePath>
-    <GameManagedPath Condition="'$(GameManagedPath)' == ''">$(LabRuntimePath)\ZumbiBlocks2_Data\Managed</GameManagedPath>
+    <GameRootPath Condition="'$(GameRootPath)' == ''">$(LabRuntimePath)</GameRootPath>
+    <GameManagedPath Condition="'$(GameManagedPath)' == ''">$(GameRootPath)\ZumbiBlocks2_Data\Managed</GameManagedPath>
+    <BepInExReferencePath Condition="'$(BepInExReferencePath)' == ''">$(LabRuntimePath)\BepInEx\core</BepInExReferencePath>
   </PropertyGroup>
 </Project>
-
